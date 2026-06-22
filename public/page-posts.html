@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Quản lý bài viết - Tự động đăng bài Facebook</title>
+    <link rel="stylesheet" href="/style.css">
+    <script src="/page-posts.js" defer></script>
+  </head>
+  <body class="admin-body">
+    <div class="admin-shell">
+      <aside class="sidenav" aria-label="Điều hướng quản trị">
+        <div class="sidenav-brand">
+          <div class="sidenav-logo">f</div>
+          <div>
+            <span class="sidenav-title">Notion Facebook</span>
+            <span class="sidenav-subtitle">Quản lý nội dung Page</span>
+          </div>
+        </div>
+        <nav class="sidenav-menu">
+          <a class="sidenav-link" href="/dashboard.html">
+            <span class="sidenav-link-icon">T</span>
+            <span>Tổng quan</span>
+          </a>
+          <a class="sidenav-link active" href="#page-tasks">
+            <span class="sidenav-link-icon">N</span>
+            <span>Tác vụ Page</span>
+          </a>
+          <a class="sidenav-link" href="#recent-posts">
+            <span class="sidenav-link-icon">B</span>
+            <span>Bài viết</span>
+          </a>
+          <a class="sidenav-link" href="/auth/google/drive">
+            <span class="sidenav-link-icon">D</span>
+            <span>Google Drive</span>
+          </a>
+        </nav>
+        <div class="sidenav-footer">
+          <a class="button ghost wide" href="/dashboard.html">Về bảng điều khiển</a>
+        </div>
+      </aside>
+
+      <div class="main-panel">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Facebook Page</p>
+            <h1>Quản lý bài viết</h1>
+            <p class="muted">Page và bài viết</p>
+          </div>
+          <div class="actions-row flush">
+            <button class="button ghost" type="button" id="refresh-notion-button">Tải lại tác vụ</button>
+            <button class="button ghost" type="button" id="retry-failed-button">Chuẩn bị đăng lại lỗi</button>
+            <button class="button secondary" type="button" id="refresh-posts-button">Tải lại bài viết</button>
+          </div>
+        </header>
+
+        <main class="layout">
+          <section class="summary-band" aria-label="Thông tin Page">
+            <div>
+              <p class="muted">Page đang chọn</p>
+              <h2 id="page-name">Đang tải...</h2>
+            </div>
+            <div>
+              <p class="muted">Quyền đăng bài</p>
+              <strong class="metric small" id="page-permission">Đang kiểm tra</strong>
+            </div>
+            <div>
+              <p class="muted">Google Drive</p>
+              <strong class="metric small" id="drive-status">Đang kiểm tra</strong>
+              <div class="summary-actions">
+                <a class="button secondary compact" href="/auth/google/drive" id="drive-connect-link">Kết nối Drive</a>
+                <button class="button ghost compact" type="button" id="drive-disconnect-button" hidden>Ngắt kết nối</button>
+              </div>
+              <p class="muted table-subtext" id="drive-status-detail"></p>
+            </div>
+          </section>
+
+          <section class="compose-panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Thủ công</p>
+                <h2>Đăng bài mới</h2>
+              </div>
+            </div>
+            <form id="create-post-form">
+              <div class="manual-draft-grid">
+                <label class="field" for="manual-task-select">
+                  <span>Lấy nhanh từ task Notion</span>
+                  <select id="manual-task-select">
+                    <option value="">Chọn task để soạn thủ công</option>
+                  </select>
+                </label>
+                <div class="manual-draft-actions">
+                  <button class="button secondary" type="button" id="use-task-draft-button">Lấy nội dung</button>
+                  <button class="button ghost" type="button" id="clear-manual-draft-button">Xóa nháp</button>
+                </div>
+              </div>
+              <label for="post-message">Nội dung bài viết</label>
+              <textarea id="post-message" name="message" rows="5"></textarea>
+              <label class="field" for="post-tags">
+                <span>Hashtag hoặc tag gõ trong nội dung</span>
+                <input id="post-tags" type="text" placeholder="Ví dụ: #khuyenmai, #megazed">
+              </label>
+              <div class="manual-media-panel">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">Media từ task</p>
+                    <h3 id="manual-media-title">Chưa chọn media</h3>
+                  </div>
+                  <span class="badge info inline-badge" id="manual-content-type">Văn bản</span>
+                </div>
+                <div class="manual-media-grid" id="manual-media-list"></div>
+              </div>
+              <div class="actions-row">
+                <button class="button primary" type="submit" id="create-post-button">Đăng bài</button>
+                <p class="muted" id="post-status" aria-live="polite"></p>
+              </div>
+            </form>
+          </section>
+
+          <section class="notion-section" id="page-tasks">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Tự động</p>
+                <h2>Tác vụ Notion của Page</h2>
+                <p class="muted" id="notion-status" aria-live="polite"></p>
+              </div>
+            </div>
+            <div class="table-toolbar compact-toolbar" aria-label="Bộ lọc tác vụ Notion của Page">
+              <label class="field" for="page-task-search">
+                <span>Tìm kiếm</span>
+                <input id="page-task-search" type="search" placeholder="Tên task, caption, trạng thái, ID bài viết">
+              </label>
+              <label class="field" for="page-task-stage-filter">
+                <span>Phân loại</span>
+                <select id="page-task-stage-filter">
+                  <option value="all">Tất cả tác vụ</option>
+                  <option value="published">Đã đăng</option>
+                  <option value="ready_to_schedule">Sẵn sàng vào lịch</option>
+                  <option value="ready_to_publish">Sẵn sàng đăng</option>
+                  <option value="publishing">Đang đăng</option>
+                  <option value="failed">Lỗi đăng</option>
+                  <option value="manual">Đăng thủ công</option>
+                  <option value="blocked">Cần kiểm tra</option>
+                  <option value="overdue">Quá hạn dưới 24 giờ</option>
+                </select>
+              </label>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Tác vụ</th>
+                    <th>Lịch đăng</th>
+                    <th>Định dạng</th>
+                    <th>Trạng thái đăng</th>
+                    <th>Phân loại</th>
+                    <th>Lỗi</th>
+                    <th>Lý do</th>
+                    <th>Hành động</th>
+                  </tr>
+                </thead>
+                <tbody id="notion-task-list"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="content-section" id="recent-posts">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Facebook</p>
+                <h2>Bài viết gần đây</h2>
+              </div>
+            </div>
+            <div class="post-list" id="post-list"></div>
+          </section>
+        </main>
+      </div>
+    </div>
+  </body>
+</html>

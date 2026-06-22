@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Bảng điều khiển - Tự động đăng bài Facebook</title>
+    <link rel="stylesheet" href="/style.css">
+    <script src="/dashboard.js" defer></script>
+  </head>
+  <body class="admin-body">
+    <div class="admin-shell">
+      <aside class="sidenav" aria-label="Điều hướng quản trị">
+        <div class="sidenav-brand">
+          <div class="sidenav-logo">f</div>
+          <div>
+            <span class="sidenav-title">Notion Facebook</span>
+            <span class="sidenav-subtitle">Bảng quản trị tự động đăng bài</span>
+          </div>
+        </div>
+        <nav class="sidenav-menu">
+          <a class="sidenav-link active" href="/dashboard.html">
+            <span class="sidenav-link-icon">T</span>
+            <span>Tổng quan</span>
+          </a>
+          <a class="sidenav-link" href="#tasks">
+            <span class="sidenav-link-icon">N</span>
+            <span>Tác vụ Notion</span>
+          </a>
+          <a class="sidenav-link" href="#pages">
+            <span class="sidenav-link-icon">P</span>
+            <span>Facebook Page</span>
+          </a>
+          <a class="sidenav-link" href="/auth/google/drive">
+            <span class="sidenav-link-icon">D</span>
+            <span>Google Drive</span>
+          </a>
+          <a class="sidenav-link" href="/auth/instagram">
+            <span class="sidenav-link-icon">I</span>
+            <span>Instagram</span>
+          </a>
+        </nav>
+        <div class="sidenav-footer">
+          <button class="button ghost wide" type="button" id="logout-button">Đăng xuất</button>
+        </div>
+      </aside>
+
+      <div class="main-panel">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Notion → Facebook Page</p>
+            <h1>Bảng điều khiển</h1>
+            <p class="muted">Tổng quan vận hành</p>
+          </div>
+          <div class="actions-row flush">
+            <button class="button primary" type="button" id="publish-due-button">Xử lý tác vụ đến hạn</button>
+            <button class="button secondary" type="button" id="publish-overdue-button">Đăng lại bài quá hạn</button>
+            <button class="button ghost" type="button" id="retry-failed-button">Chuẩn bị đăng lại lỗi</button>
+          </div>
+        </header>
+
+        <main class="layout">
+          <section class="summary-band" aria-label="Chỉ số tổng quan">
+            <div>
+              <p class="muted">Tài khoản đang kết nối</p>
+              <h2 id="user-name">Đang tải...</h2>
+            </div>
+            <div>
+              <p class="muted">Page có thể quản lý</p>
+              <strong class="metric" id="page-count">0</strong>
+            </div>
+            <div>
+              <p class="muted">Sẵn sàng vào lịch</p>
+              <strong class="metric" id="notion-ready-count">0</strong>
+            </div>
+            <div>
+              <p class="muted">Quá hạn dưới 24 giờ</p>
+              <strong class="metric" id="notion-overdue-count">0</strong>
+            </div>
+            <div>
+              <p class="muted">Google Drive</p>
+              <strong class="metric small" id="drive-status">Đang kiểm tra</strong>
+              <div class="summary-actions">
+                <a class="button secondary compact" href="/auth/google/drive" id="drive-connect-link">Kết nối Drive</a>
+                <button class="button ghost compact" type="button" id="drive-disconnect-button" hidden>Ngắt kết nối</button>
+              </div>
+              <p class="muted table-subtext" id="drive-status-detail"></p>
+            </div>
+            <div>
+              <p class="muted">Instagram</p>
+              <strong class="metric small" id="instagram-status">&#272;ang ki&#7875;m tra</strong>
+              <div class="summary-actions">
+                <a class="button secondary compact" href="/auth/instagram" id="instagram-connect-link">K&#7871;t n&#7889;i IG</a>
+                <button class="button ghost compact" type="button" id="instagram-disconnect-button" hidden>Ng&#7855;t k&#7871;t n&#7889;i</button>
+              </div>
+              <p class="muted table-subtext" id="instagram-status-detail"></p>
+            </div>
+          </section>
+
+          <section class="notion-section" id="tasks">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Hàng đợi tự động</p>
+                <h2>Tác vụ Notion</h2>
+                <p class="muted" id="notion-status" aria-live="polite"></p>
+              </div>
+            </div>
+            <div class="table-toolbar">
+              <label class="field compact-field" for="task-search">
+                <span>Tìm kiếm</span>
+                <input id="task-search" type="search" placeholder="Tìm theo tiêu đề, Page, nội dung...">
+              </label>
+              <label class="field compact-field" for="task-stage-filter">
+                <span>Trạng thái</span>
+                <select id="task-stage-filter">
+                  <option value="all">Tất cả</option>
+                  <option value="published">Đã đăng</option>
+                  <option value="ready_to_schedule">Sẵn sàng vào lịch</option>
+                  <option value="ready_to_publish">Sẵn sàng đăng</option>
+                  <option value="publishing">Đang đăng</option>
+                  <option value="failed">Lỗi đăng</option>
+                  <option value="manual">Đăng thủ công</option>
+                  <option value="blocked">Cần kiểm tra</option>
+                  <option value="overdue">Quá hạn dưới 24 giờ</option>
+                </select>
+              </label>
+              <label class="field compact-field" for="task-page-filter">
+                <span>Page</span>
+                <select id="task-page-filter">
+                  <option value="all">Tất cả Page</option>
+                </select>
+              </label>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Tác vụ</th>
+                    <th>Page</th>
+                    <th>Lịch đăng</th>
+                    <th>Định dạng</th>
+                    <th>Trạng thái đăng</th>
+                    <th>Phân loại</th>
+                    <th>Lỗi</th>
+                    <th>Lý do</th>
+                    <th>Hành động</th>
+                  </tr>
+                </thead>
+                <tbody id="notion-task-list"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="content-section" id="pages">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Facebook</p>
+                <h2>Danh sách Page</h2>
+              </div>
+              <p class="muted" id="dashboard-status" aria-live="polite"></p>
+            </div>
+            <div class="page-grid" id="page-list"></div>
+          </section>
+        </main>
+      </div>
+    </div>
+  </body>
+</html>
