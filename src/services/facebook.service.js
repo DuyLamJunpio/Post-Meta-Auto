@@ -90,7 +90,8 @@ async function getManagedPages(userAccessToken) {
   const pages = [];
   let nextUrl = `${config.facebook.graphApiBaseUrl}/me/accounts`;
   let params = {
-    fields: "id,name,access_token,tasks,picture{url}",
+    // instagram_business_account: IG Business liên kết Page -> đăng IG bằng Page token (Cách Facebook Login).
+    fields: "id,name,access_token,tasks,picture{url},instagram_business_account{id,username,profile_picture_url}",
     access_token: userAccessToken,
     limit: 100
   };
@@ -106,7 +107,14 @@ async function getManagedPages(userAccessToken) {
           name: page.name,
           pageAccessToken: page.access_token,
           tasks: Array.isArray(page.tasks) ? page.tasks : [],
-          pictureUrl: page.picture && page.picture.data ? page.picture.data.url : null
+          pictureUrl: page.picture && page.picture.data ? page.picture.data.url : null,
+          instagramBusinessAccount: page.instagram_business_account
+            ? {
+                id: page.instagram_business_account.id,
+                username: page.instagram_business_account.username || "",
+                profilePictureUrl: page.instagram_business_account.profile_picture_url || null
+              }
+            : null
         }))
       );
 

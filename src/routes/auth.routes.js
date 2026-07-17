@@ -4,7 +4,9 @@ const express = require("express");
 const { config } = require("../config");
 const facebookService = require("../services/facebook.service");
 const googleDriveService = require("../services/google-drive.service");
+const gbpService = require("../services/gbp.service");
 const instagramService = require("../services/instagram.service");
+const tiktokService = require("../services/tiktok.service");
 
 const router = express.Router();
 
@@ -118,6 +120,48 @@ async function handleGoogleDriveCallback(req, res, next) {
 router.get("/google/drive/callback", requireFacebookLogin, handleGoogleDriveCallback);
 router.get("/google/callback", requireFacebookLogin, handleGoogleDriveCallback);
 
+router.get("/google/business", requireFacebookLogin, (req, res, next) => {
+  try {
+    res.redirect(gbpService.buildAuthorizationUrl(req.session));
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/google/business/callback", requireFacebookLogin, async (req, res, next) => {
+  try {
+    const { code, state, error, error_description: errorDescription } = req.query;
+    const expectedState = req.session.googleBusinessOAuthState;
+
+    delete req.session.googleBusinessOAuthState;
+
+    if (error) {
+      return res.status(400).send(errorDescription || "Google đã hủy yêu cầu kết nối Business Profile.");
+    }
+
+    if (!expectedState || state !== expectedState) {
+      return res.status(400).send("OAuth state Google Business Profile không hợp lệ.");
+    }
+
+    if (!code) {
+      return res.status(400).send("Không có authorization code Google Business Profile.");
+    }
+
+    const tokens = await gbpService.exchangeCodeForTokens(code);
+    gbpService.storeTokens(req.session, tokens);
+
+    req.session.save((saveError) => {
+      if (saveError) {
+        return next(saveError);
+      }
+
+      res.redirect("/dashboard.html?gbp=connected");
+    });
+  } catch (callbackError) {
+    next(callbackError);
+  }
+});
+
 router.get("/instagram", requireFacebookLogin, (req, res, next) => {
   try {
     res.redirect(instagramService.buildAuthorizationUrl(req.session));
@@ -155,6 +199,49 @@ router.get("/instagram/callback", requireFacebookLogin, async (req, res, next) =
       }
 
       res.redirect("/dashboard.html?instagram=connected");
+    });
+  } catch (callbackError) {
+    next(callbackError);
+  }
+});
+
+router.get("/tiktok", requireFacebookLogin, (req, res, next) => {
+  try {
+    res.redirect(tiktokService.buildAuthorizationUrl(req.session));
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/tiktok/callback", requireFacebookLogin, async (req, res, next) => {
+  try {
+    const { code, state, error, error_description: errorDescription } = req.query;
+    const expectedState = req.session.tiktokOAuthState;
+
+    delete req.session.tiktokOAuthState;
+
+    if (error) {
+      return res.status(400).send(errorDescription || "TikTok đã hủy yêu cầu kết nối.");
+    }
+
+    if (!expectedState || state !== expectedState) {
+      return res.status(400).send("OAuth state TikTok không hợp lệ.");
+    }
+
+    if (!code) {
+      return res.status(400).send("Không có authorization code TikTok.");
+    }
+
+    const tokens = await tiktokService.exchangeCodeForTokens(code);
+    const profile = await tiktokService.getProfile(tokens.access_token);
+    tiktokService.storeTokens(req.session, tokens, profile);
+
+    req.session.save((saveError) => {
+      if (saveError) {
+        return next(saveError);
+      }
+
+      res.redirect("/dashboard.html?tiktok=connected");
     });
   } catch (callbackError) {
     next(callbackError);

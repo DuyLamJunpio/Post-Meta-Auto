@@ -28,15 +28,24 @@ const googleDriveRedirectUri =
   `http://localhost:${Number(process.env.PORT) || 3000}/auth/google/drive/callback`;
 const googleDriveClientId = process.env.GOOGLE_CLIENT_ID || "";
 const googleDriveClientSecret = process.env.GOOGLE_CLIENT_SECRET || "";
+const googleBusinessRedirectUri =
+  process.env.GOOGLE_BUSINESS_REDIRECT_URI ||
+  `http://localhost:${Number(process.env.PORT) || 3000}/auth/google/business/callback`;
 const instagramAppId = process.env.INSTAGRAM_APP_ID || "";
 const instagramAppSecret = process.env.INSTAGRAM_APP_SECRET || "";
 const instagramRedirectUri =
   process.env.INSTAGRAM_REDIRECT_URI ||
   `http://localhost:${Number(process.env.PORT) || 3000}/auth/instagram/callback/`;
+const tiktokClientKey = process.env.TIKTOK_CLIENT_KEY || "";
+const tiktokClientSecret = process.env.TIKTOK_CLIENT_SECRET || "";
+const tiktokRedirectUri =
+  process.env.TIKTOK_REDIRECT_URI ||
+  `http://localhost:${Number(process.env.PORT) || 3000}/auth/tiktok/callback`;
 const hiddenFacebookPageNames = (process.env.HIDDEN_FACEBOOK_PAGE_NAMES || "xay dung thanh phat")
   .split(",")
   .map((name) => name.trim())
   .filter(Boolean);
+const publicBaseUrl = String(process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
 
 const config = {
   port: Number(process.env.PORT) || 3000,
@@ -48,7 +57,15 @@ const config = {
     graphApiVersion,
     graphApiBaseUrl: `https://graph.facebook.com/${graphApiVersion}`,
     oauthDialogUrl: `https://www.facebook.com/${graphApiVersion}/dialog/oauth`,
-    scopes: ["pages_show_list", "pages_read_engagement", "pages_manage_posts"],
+    // instagram_basic + instagram_content_publish: đăng lên IG Business liên kết với Page,
+    // dùng chung Page Access Token (không cần đăng nhập Instagram riêng).
+    scopes: [
+      "pages_show_list",
+      "pages_read_engagement",
+      "pages_manage_posts",
+      "instagram_basic",
+      "instagram_content_publish"
+    ],
     hiddenPageNames: hiddenFacebookPageNames
   },
   instagram: {
@@ -83,6 +100,46 @@ const config = {
       .split(/[,\s]+/)
       .map((scope) => scope.trim())
       .filter(Boolean)
+  },
+  googleBusiness: {
+    clientId: googleDriveClientId,
+    clientSecret: googleDriveClientSecret,
+    redirectUri: googleBusinessRedirectUri,
+    enabled: Boolean(googleDriveClientId && googleDriveClientSecret && googleBusinessRedirectUri),
+    oauthDialogUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+    tokenUrl: "https://oauth2.googleapis.com/token",
+    revokeUrl: "https://oauth2.googleapis.com/revoke",
+    apiBaseUrl: "https://mybusiness.googleapis.com/v4",
+    // API liệt kê account/location (định danh brand.gbpLocationId) — khác endpoint đăng bài v4.
+    accountApiBaseUrl: "https://mybusinessaccountmanagement.googleapis.com/v1",
+    infoApiBaseUrl: "https://mybusinessbusinessinformation.googleapis.com/v1",
+    scopes: (process.env.GOOGLE_BUSINESS_SCOPES || "https://www.googleapis.com/auth/business.manage")
+      .split(/[,\s]+/)
+      .map((scope) => scope.trim())
+      .filter(Boolean)
+  },
+  tiktok: {
+    clientKey: tiktokClientKey,
+    clientSecret: tiktokClientSecret,
+    redirectUri: tiktokRedirectUri,
+    enabled: Boolean(tiktokClientKey && tiktokClientSecret && tiktokRedirectUri),
+    oauthDialogUrl: "https://www.tiktok.com/v2/auth/authorize/",
+    tokenUrl: "https://open.tiktokapis.com/v2/oauth/token/",
+    revokeUrl: "https://open.tiktokapis.com/v2/oauth/revoke/",
+    apiBaseUrl: "https://open.tiktokapis.com/v2",
+    // Ứng dụng TikTok chưa qua audit chỉ đăng được ở mức SELF_ONLY (video riêng tư).
+    privacyLevel: process.env.TIKTOK_PRIVACY_LEVEL || "SELF_ONLY",
+    scopes: (process.env.TIKTOK_SCOPES || "user.info.basic,video.publish")
+      .split(/[,\s]+/)
+      .map((scope) => scope.trim())
+      .filter(Boolean)
+  },
+  mediaProxy: {
+    // Host công khai để phát lại media Drive cho IG/GBP/TikTok fetch. Trống = tắt (localhost).
+    publicBaseUrl,
+    enabled: Boolean(publicBaseUrl),
+    storageDir: process.env.MEDIA_PROXY_DIR || "data/media-cache",
+    ttlMs: Number(process.env.MEDIA_PROXY_TTL_MS || 2 * 60 * 60 * 1000)
   }
 };
 

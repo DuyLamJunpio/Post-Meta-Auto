@@ -3,6 +3,7 @@ const session = require("express-session");
 const path = require("path");
 
 const { config } = require("./src/config");
+const { initDatabase } = require("./src/db");
 const requireAuth = require("./src/middleware/requireAuth");
 const authRoutes = require("./src/routes/auth.routes");
 const userRoutes = require("./src/routes/user.routes");
@@ -11,12 +12,21 @@ const postRoutes = require("./src/routes/post.routes");
 const notionRoutes = require("./src/routes/notion.routes");
 const driveRoutes = require("./src/routes/drive.routes");
 const instagramRoutes = require("./src/routes/instagram.routes");
+const gbpRoutes = require("./src/routes/gbp.routes");
+const tiktokRoutes = require("./src/routes/tiktok.routes");
+const mediaRoutes = require("./src/routes/media.routes");
 const googleDriveService = require("./src/services/google-drive.service");
+const instagramService = require("./src/services/instagram.service");
+const gbpService = require("./src/services/gbp.service");
+const tiktokService = require("./src/services/tiktok.service");
+const mediaProxyService = require("./src/services/media-proxy.service");
 const notionService = require("./src/services/notion.service");
 const pageVisibilityService = require("./src/services/page-visibility.service");
 
 const app = express();
 const sessionStore = new session.MemoryStore();
+
+initDatabase();
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
@@ -38,6 +48,9 @@ app.use(
 
 app.use(express.static(path.join(__dirname, "public")));
 
+// Proxy media tạm cho IG/GBP/TikTok fetch — public, KHÔNG qua requireAuth.
+app.use("/media", mediaRoutes);
+
 app.get("/api/health", (req, res) => {
   res.json({
     success: true,
@@ -52,6 +65,8 @@ app.use("/api", pageRoutes);
 app.use("/api", postRoutes);
 app.use("/api", driveRoutes);
 app.use("/api", instagramRoutes);
+app.use("/api", gbpRoutes);
+app.use("/api", tiktokRoutes);
 app.use("/api", notionRoutes);
 
 let notionAutoPublishRunning = false;
@@ -87,6 +102,9 @@ async function runNotionAutoPublish() {
 
     for (const storedSession of facebookSessions) {
       const driveAuth = googleDriveService.getSessionAuth(storedSession);
+      const instagramAuth = instagramService.getSessionAuth(storedSession);
+      const gbpAuth = gbpService.getSessionAuth(storedSession);
+      const tiktokAuth = tiktokService.getSessionAuth(storedSession);
       const visiblePages = pageVisibilityService.getVisiblePages(storedSession.facebookUser.pages);
 
       if (visiblePages.length === 0) {
@@ -94,10 +112,16 @@ async function runNotionAutoPublish() {
       }
 
       const scheduleResult = await notionService.scheduleReadyTasks(storedSession.facebookUser.pages, {
-        driveAuth
+        driveAuth,
+        instagramAuth,
+        gbpAuth,
+        tiktokAuth
       });
       const result = await notionService.publishDueTasks(storedSession.facebookUser.pages, {
-        driveAuth
+        driveAuth,
+        instagramAuth,
+        gbpAuth,
+        tiktokAuth
       });
 
       if (
@@ -124,6 +148,11 @@ async function runNotionAutoPublish() {
 if (config.notion.autoPublishIntervalMs > 0) {
   const autoPublishTimer = setInterval(runNotionAutoPublish, config.notion.autoPublishIntervalMs);
   autoPublishTimer.unref();
+}
+
+if (mediaProxyService.isEnabled()) {
+  const mediaSweepTimer = setInterval(() => mediaProxyService.sweep(), config.mediaProxy.ttlMs);
+  mediaSweepTimer.unref();
 }
 
 app.use((req, res) => {

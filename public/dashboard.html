@@ -38,6 +38,14 @@
             <span class="sidenav-link-icon">I</span>
             <span>Instagram</span>
           </a>
+          <a class="sidenav-link" href="/auth/google/business">
+            <span class="sidenav-link-icon">G</span>
+            <span>Google Business</span>
+          </a>
+          <a class="sidenav-link" href="/auth/tiktok">
+            <span class="sidenav-link-icon">TT</span>
+            <span>TikTok</span>
+          </a>
         </nav>
         <div class="sidenav-footer">
           <button class="button ghost wide" type="button" id="logout-button">Đăng xuất</button>
@@ -93,6 +101,24 @@
                 <button class="button ghost compact" type="button" id="instagram-disconnect-button" hidden>Ng&#7855;t k&#7871;t n&#7889;i</button>
               </div>
               <p class="muted table-subtext" id="instagram-status-detail"></p>
+            </div>
+            <div>
+              <p class="muted">Google Business Profile</p>
+              <strong class="metric small" id="gbp-status">Đang kiểm tra</strong>
+              <div class="summary-actions">
+                <a class="button secondary compact" href="/auth/google/business" id="gbp-connect-link">Kết nối GBP</a>
+                <button class="button ghost compact" type="button" id="gbp-disconnect-button" hidden>Ngắt kết nối</button>
+              </div>
+              <p class="muted table-subtext" id="gbp-status-detail"></p>
+            </div>
+            <div>
+              <p class="muted">TikTok</p>
+              <strong class="metric small" id="tiktok-status">Đang kiểm tra</strong>
+              <div class="summary-actions">
+                <a class="button secondary compact" href="/auth/tiktok" id="tiktok-connect-link">Kết nối TikTok</a>
+                <button class="button ghost compact" type="button" id="tiktok-disconnect-button" hidden>Ngắt kết nối</button>
+              </div>
+              <p class="muted table-subtext" id="tiktok-status-detail"></p>
             </div>
           </section>
 
@@ -159,6 +185,22 @@
               <p class="muted" id="dashboard-status" aria-live="polite"></p>
             </div>
             <div class="page-grid" id="page-list"></div>
+          </section>
+
+          <section class="content-section" id="channel-ids">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Thiết lập Notion</p>
+                <h2>ID kênh để điền vào Brands</h2>
+              </div>
+              <p class="muted">Copy ID rồi dán vào đúng cột trong bảng Brands (mỗi kênh một cột).</p>
+            </div>
+            <div class="channel-id-list" id="channel-id-list"></div>
+            <div class="gbp-locations-block">
+              <button class="button ghost compact" type="button" id="gbp-locations-button">Tải danh sách địa điểm Google Business</button>
+              <p class="muted" id="gbp-locations-status" aria-live="polite"></p>
+              <div class="channel-id-list" id="gbp-locations-list"></div>
+            </div>
           </section>
         </main>
       </div>

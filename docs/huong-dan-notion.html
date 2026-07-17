@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>Hướng dẫn tạo Task & Setup Notion — Hệ thống đăng bài đa kênh</title>
+<style>
+  :root{
+    --ink:#1a2230; --muted:#5b6676; --line:#e2e7ef; --soft:#f5f7fa;
+    --brand:#0f766e; --brand2:#0e7490; --accent:#b45309;
+    --fb:#1877f2; --ig:#c13584; --gbp:#0f9d58; --tt:#111827;
+    --ok:#0f766e; --no:#b42318; --warn:#b45309;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:"Segoe UI",-apple-system,"Helvetica Neue",Arial,sans-serif;
+    color:var(--ink); font-size:12px; line-height:1.55;
+    -webkit-print-color-adjust:exact; print-color-adjust:exact;
+  }
+  .page{ padding:0 4mm; }
+  h1,h2,h3{ line-height:1.25; }
+  h2{
+    font-size:17px; color:var(--brand); margin:26px 0 10px;
+    padding-bottom:6px; border-bottom:2px solid var(--brand);
+    page-break-after:avoid;
+  }
+  h3{ font-size:13.5px; color:var(--ink); margin:16px 0 6px; page-break-after:avoid; }
+  p{ margin:6px 0; }
+  code{ background:var(--soft); border:1px solid var(--line); border-radius:4px; padding:1px 5px; font-family:"Consolas",monospace; font-size:11px; }
+  .lead{ color:var(--muted); font-size:12.5px; }
+  ul,ol{ margin:6px 0 6px 0; padding-left:20px; }
+  li{ margin:3px 0; }
+  strong{ color:var(--ink); }
+
+  /* Cover */
+  .cover{
+    background:linear-gradient(135deg,#0f766e 0%,#0e7490 60%,#155e75 100%);
+    color:#fff; border-radius:14px; padding:34px 30px; margin:6px 0 8px;
+  }
+  .cover .kicker{ text-transform:uppercase; letter-spacing:2px; font-size:11px; opacity:.85; }
+  .cover h1{ font-size:30px; margin:8px 0 6px; }
+  .cover .sub{ font-size:14px; opacity:.95; max-width:80%; }
+  .cover .meta{ margin-top:16px; font-size:11px; opacity:.85; }
+  .badges{ margin-top:16px; display:flex; gap:8px; flex-wrap:wrap; }
+  .badges span{ background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.35); border-radius:20px; padding:4px 12px; font-size:11px; }
+
+  /* TOC */
+  .toc{ background:var(--soft); border:1px solid var(--line); border-radius:10px; padding:14px 18px; }
+  .toc ol{ columns:2; column-gap:26px; margin:4px 0; }
+  .toc a{ color:var(--ink); text-decoration:none; }
+
+  /* Tables */
+  table{ width:100%; border-collapse:collapse; margin:8px 0; font-size:11px; }
+  th,td{ border:1px solid var(--line); padding:6px 8px; text-align:left; vertical-align:top; }
+  th{ background:var(--brand); color:#fff; font-weight:600; }
+  tbody tr:nth-child(even){ background:var(--soft); }
+  .req{ color:var(--no); font-weight:700; }
+  .opt{ color:var(--muted); }
+  .auto{ color:var(--brand2); font-weight:600; }
+  table.compat td{ text-align:center; }
+  table.compat td.name{ text-align:left; font-weight:600; }
+  .yes{ color:var(--ok); font-weight:700; }
+  .no{ color:var(--no); font-weight:700; }
+  .soonc{ color:var(--warn); font-weight:700; }
+
+  /* Callouts */
+  .box{ border-radius:10px; padding:12px 16px; margin:12px 0; border:1px solid var(--line); page-break-inside:avoid; }
+  .box.tip{ background:#f0fdfa; border-color:#99f6e4; }
+  .box.warn{ background:#fffbeb; border-color:#fde68a; }
+  .box.info{ background:#eff6ff; border-color:#bfdbfe; }
+  .box .t{ font-weight:700; margin-bottom:4px; }
+  .box.tip .t{ color:var(--brand); }
+  .box.warn .t{ color:var(--warn); }
+  .box.info .t{ color:#1d4ed8; }
+
+  /* Steps */
+  .steps{ counter-reset:step; margin:10px 0; }
+  .step{ position:relative; padding:8px 8px 8px 42px; margin:6px 0; border:1px solid var(--line); border-radius:8px; background:#fff; page-break-inside:avoid; }
+  .step:before{
+    counter-increment:step; content:counter(step);
+    position:absolute; left:10px; top:9px; width:22px; height:22px; border-radius:50%;
+    background:var(--brand); color:#fff; text-align:center; line-height:22px; font-weight:700; font-size:12px;
+  }
+  .step b{ color:var(--brand); }
+
+  /* channel chips */
+  .chip{ display:inline-block; border-radius:5px; padding:1px 7px; color:#fff; font-size:10.5px; font-weight:600; }
+  .c-fb{ background:var(--fb); } .c-ig{ background:var(--ig); } .c-gbp{ background:var(--gbp); } .c-tt{ background:var(--tt); }
+
+  /* Sample task card */
+  .sample{ border:1px solid var(--line); border-left:4px solid var(--brand); border-radius:8px; padding:12px 16px; margin:10px 0; background:#fff; page-break-inside:avoid; }
+  .sample h4{ margin:0 0 8px; font-size:13px; color:var(--brand); }
+  .kv{ display:grid; grid-template-columns:150px 1fr; gap:2px 10px; font-size:11px; }
+  .kv div.k{ color:var(--muted); }
+  .kv div.v{ color:var(--ink); }
+  .kv code{ font-size:10.5px; }
+
+  .footer{ margin-top:24px; padding-top:10px; border-top:1px solid var(--line); color:var(--muted); font-size:10px; text-align:center; }
+
+  @page{ size:A4; margin:14mm 12mm; }
+  .pb{ page-break-before:always; }
+  @media print{ .cover{ -webkit-print-color-adjust:exact; } }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="cover">
+    <div class="kicker">Tài liệu nội bộ · Quy trình vận hành</div>
+    <h1>Hướng dẫn tạo Task &amp; Setup Notion</h1>
+    <div class="sub">Hệ thống tự động đăng bài từ Notion lên nhiều kênh: Facebook · Instagram · Google Business Profile · TikTok</div>
+    <div class="badges">
+      <span>📘 Dành cho: Content · Design · Editor · Quản lý Brand</span>
+      <span>🗓️ Cập nhật: 07/2026</span>
+      <span>✅ Notion là nguồn sự thật</span>
+    </div>
+    <div class="meta">Đọc kỹ tài liệu này trước khi tạo task. Làm đúng ngay từ đầu giúp bài được đăng tự động, tránh lỗi và thao tác thừa.</div>
+  </div>
+
+  <div class="toc">
+    <strong>Mục lục</strong>
+    <ol>
+      <li><a href="#s1">Hệ thống hoạt động thế nào</a></li>
+      <li><a href="#s2">Quy trình 6 bước tạo 1 task</a></li>
+      <li><a href="#s3">Giải thích chi tiết từng cột (Content DB)</a></li>
+      <li><a href="#s4">Kênh nào đăng được nội dung gì</a></li>
+      <li><a href="#s5">Quy tắc nhập Media URLs (link Google Drive)</a></li>
+      <li><a href="#s6">Ví dụ mẫu (task chuẩn)</a></li>
+      <li><a href="#s7">Thiết lập Brand (Brands DB)</a></li>
+      <li><a href="#s8">Điều kiện để bài được đăng &amp; các trạng thái</a></li>
+      <li><a href="#s9">Lỗi thường gặp &amp; cách tránh</a></li>
+      <li><a href="#s10">Ghi chú kỹ thuật cho Admin</a></li>
+    </ol>
+  </div>
+
+  <!-- ===================== 1 ===================== -->
+  <h2 id="s1">1. Hệ thống hoạt động thế nào</h2>
+  <p>Bạn <strong>không đăng bài thủ công</strong> trên từng nền tảng. Thay vào đó, bạn tạo một <em>task</em> trong Notion, điền nội dung + chọn kênh + đặt giờ đăng. Đến giờ, hệ thống <strong>tự động</strong> lấy nội dung, tải media từ Google Drive và đăng lên đúng các kênh bạn chọn, rồi ghi ngược trạng thái (Đã đăng / Lỗi đăng) và link bài về Notion.</p>
+
+  <div class="box info">
+    <div class="t">Luồng dữ liệu tóm tắt</div>
+    Notion (Content + Brands) → hệ thống ghép Task ↔ Brand → tải media từ Google Drive → đăng lên
+    <span class="chip c-fb">Facebook</span> <span class="chip c-ig">Instagram</span>
+    <span class="chip c-gbp">Google Business</span> <span class="chip c-tt">TikTok</span>
+    → ghi kết quả + link bài về Notion.
+  </div>
+
+  <p>Có <strong>2 bảng (database)</strong> trong Notion bạn cần biết:</p>
+  <ul>
+    <li><strong>Content</strong> — mỗi dòng là 1 bài viết cần đăng (task). Đây là nơi bạn làm việc nhiều nhất.</li>
+    <li><strong>Brands</strong> — danh sách thương hiệu/Page. Mỗi task trỏ tới 1 brand để biết đăng lên tài khoản nào. Thường do quản lý setup 1 lần.</li>
+  </ul>
+
+  <div class="box tip">
+    <div class="t">Nguyên tắc vàng</div>
+    Hệ thống chỉ tự động đăng khi task <strong>đủ điều kiện</strong>. Nếu thiếu/sai một ô bắt buộc, task sẽ <strong>không đăng</strong> và hệ thống ghi lý do bằng tiếng Việt vào cột <code>Notes</code>/<code>Error Message</code>. Xem mục 8 để biết đủ điều kiện là gì.
+  </div>
+
+  <!-- ===================== 2 ===================== -->
+  <h2 id="s2">2. Quy trình 6 bước tạo 1 task</h2>
+  <div class="steps">
+    <div class="step"><b>Tạo dòng mới trong Content</b> và đặt <code>Post Title</code> (tên nội bộ để nhận diện, ví dụ: <em>"KM tháng 7 - bộ ảnh sản phẩm"</em>).</div>
+    <div class="step"><b>Chọn Brand:</b> ở cột <code>Primary Brand</code> chọn <strong>đúng 1</strong> brand sẽ đứng tên đăng.</div>
+    <div class="step"><b>Chọn kênh:</b> tick các kênh ở cột <code>Channel</code> (Facebook / Instagram / Google Business Profile / TikTok). Chỉ đăng lên kênh được tick.</div>
+    <div class="step"><b>Nhập nội dung:</b> viết <code>Caption</code> và dán link media vào <code>Media URLs</code> (mỗi dòng 1 link Google Drive). Chọn <code>Post Type</code> = Post hoặc Reel.</div>
+    <div class="step"><b>Đặt lịch:</b> điền <code>Publish At</code> (ngày giờ đăng). Đảm bảo <code>Approval Status</code> = <em>Đã duyệt</em> và <code>Content Workflow</code> = <em>Hoàn thành nội dung</em>.</div>
+    <div class="step"><b>Bật tự động:</b> tick <code>Auto Publish</code>. Xong — hệ thống sẽ tự lên lịch rồi đăng đúng giờ. Bạn không cần đổi <code>Publish Status</code> (hệ thống tự đổi).</div>
+  </div>
+
+  <div class="box warn">
+    <div class="t">Lưu ý quan trọng</div>
+    <strong>Không tự sửa cột <code>Publish Status</code></strong> (Chưa lên lịch / Đã lên lịch / Đang đăng / Đã đăng / Lỗi đăng). Đây là cột hệ thống tự quản lý. Bạn chỉ cần bật <code>Auto Publish</code> và đặt <code>Publish At</code>.
+  </div>
+
+  <!-- ===================== 3 ===================== -->
+  <h2 id="s3" class="pb">3. Giải thích chi tiết từng cột (Content DB)</h2>
+  <p class="lead">Cột đánh dấu <span class="req">Bắt buộc</span> phải điền thì task mới đăng được. <span class="opt">Tùy chọn</span> = điền khi cần. <span class="auto">Hệ thống</span> = không đụng vào, để hệ thống tự ghi.</p>
+
+  <table>
+    <thead><tr><th style="width:150px">Cột</th><th style="width:70px">Vai trò</th><th>Ý nghĩa &amp; cách điền</th></tr></thead>
+    <tbody>
+      <tr><td><code>Post Title</code></td><td class="req">Bắt buộc</td><td>Tên task để nhận diện trong Notion/dashboard. Không hiển thị lên bài đăng.</td></tr>
+      <tr><td><code>Caption</code></td><td class="req">Bắt buộc*</td><td>Nội dung bài đăng. Nhập chữ, emoji, hashtag <code>#...</code>, mention <code>@...</code> trực tiếp. (*Instagram/TikTok bắt buộc có media; Facebook/GBP có thể chỉ chữ.)</td></tr>
+      <tr><td><code>Media URLs</code></td><td class="req">Bắt buộc*</td><td>Mỗi dòng 1 link ảnh/video/GIF từ Google Drive. Xem <strong>mục 5</strong> để nhập đúng. (*Bắt buộc với IG/TikTok; Post FB có thể chỉ chữ.)</td></tr>
+      <tr><td><code>Channel</code></td><td class="req">Bắt buộc</td><td>Tick 1 hoặc nhiều kênh sẽ đăng. Chỉ đăng lên kênh được tick. Xem mục 4 để chọn đúng theo loại nội dung.</td></tr>
+      <tr><td><code>Primary Brand</code></td><td class="req">Bắt buộc</td><td>Chọn <strong>đúng 1</strong> brand/Page đứng tên. Hệ thống dựa vào đây để map sang tài khoản từng kênh. Chọn 0 hoặc &gt;1 sẽ bị chặn.</td></tr>
+      <tr><td><code>Post Type</code></td><td class="req">Bắt buộc</td><td><strong>Post</strong> = bài thường (1 ảnh, nhiều ảnh, video, hoặc ảnh+video). <strong>Reel</strong> = reel, chỉ dùng 1 link video trong Media URLs.</td></tr>
+      <tr><td><code>Publish At</code></td><td class="req">Bắt buộc</td><td>Ngày giờ dự kiến đăng. Đến giờ hệ thống mới đăng. Nếu quá hạn hơn 24 giờ, task sẽ bị bỏ qua.</td></tr>
+      <tr><td><code>Auto Publish</code></td><td class="req">Bắt buộc</td><td>Tick để bật tự động lên lịch/đăng. Không tick = hệ thống bỏ qua task.</td></tr>
+      <tr><td><code>Approval Status</code></td><td class="req">Bắt buộc</td><td>Phải là <strong>Đã duyệt</strong> thì mới đăng. Các trạng thái khác (Chờ duyệt/Cần sửa/Từ chối/Nháp) sẽ chặn.</td></tr>
+      <tr><td><code>Content Workflow</code></td><td class="req">Bắt buộc</td><td>Phải là <strong>Hoàn thành nội dung</strong> thì mới đăng. Chọn khi caption + media đã sẵn sàng.</td></tr>
+      <tr><td><code>Tags</code></td><td class="opt">Tùy chọn</td><td>Hashtag/tag bổ sung (mỗi tag một mục hoặc cách nhau bằng dấu phẩy). Hệ thống ghép vào cuối caption.</td></tr>
+      <tr><td><code>Timezone</code></td><td class="opt">Tùy chọn</td><td>Múi giờ áp dụng cho Publish At. Mặc định <code>Asia/Ho_Chi_Minh</code>.</td></tr>
+      <tr><td><code>Source Folder URL</code></td><td class="opt">Tùy chọn</td><td>Link folder Drive gốc chứa media, chỉ để quản lý nội bộ — <strong>không</strong> dùng trực tiếp để đăng.</td></tr>
+      <tr><td><code>Notes</code></td><td class="opt">Tùy chọn</td><td>Ghi chú nội bộ. Hệ thống cũng ghi log lỗi chi tiết vào đây khi đăng thất bại.</td></tr>
+      <tr><td><code>Publish Status</code></td><td class="auto">Hệ thống</td><td>Trạng thái đăng, hệ thống tự đổi: Chưa lên lịch → Đã lên lịch → Đang đăng → Đã đăng / Lỗi đăng. <strong>Không chỉnh tay.</strong></td></tr>
+      <tr><td><code>Facebook Post ID / URL</code></td><td class="auto">Hệ thống</td><td>Hệ thống ghi ID + link bài Facebook sau khi đăng thành công.</td></tr>
+      <tr><td><code>Error Message</code>, <code>Retry Count</code>, <code>Published At</code>, <code>Last Synced At</code>, <code>Automation Key</code></td><td class="auto">Hệ thống</td><td>Các cột theo dõi tự động (lỗi, số lần thử lại, thời điểm đăng/đồng bộ, mã chống trùng). Không cần đụng.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Cột nâng cao cho Facebook — cân nhắc trước khi dùng</h3>
+  <div class="box warn">
+    <div class="t">Các cột này hiện sẽ CHẶN đăng tự động nếu bật</div>
+    Nếu bạn điền/tick các cột sau, task sẽ <strong>không</strong> đăng tự động (hệ thống ghi lý do và chờ xử lý thủ công), vì chúng cần API/quyền riêng chưa tích hợp:
+    <ul style="margin-top:6px">
+      <li><code>Feeling/Activity</code>, <code>Messenger CTA</code>, <code>Call Phone Number</code>, <code>Share To Story</code>, <code>Collaborator Brand</code></li>
+      <li><code>Tag People URLs</code> — chỉ chạy khi link chứa <em>numeric ID</em> hoặc dạng <code>profile.php?id=...</code></li>
+      <li><code>Location Name</code>/<code>Location Facebook URL</code> — cần URL có <em>numeric place ID</em></li>
+    </ul>
+    👉 Nếu chỉ cần đăng tự động bình thường, <strong>để trống các cột này</strong>.
+  </div>
+
+  <!-- ===================== 4 ===================== -->
+  <h2 id="s4">4. Kênh nào đăng được nội dung gì</h2>
+  <p>Mỗi nền tảng nhận loại nội dung khác nhau. Bảng dưới giúp bạn chọn <code>Channel</code> đúng theo loại media của task:</p>
+
+  <table class="compat">
+    <thead>
+      <tr><th class="name" style="width:170px">Loại nội dung</th>
+      <th><span class="chip c-fb">Facebook</span></th>
+      <th><span class="chip c-ig">Instagram</span></th>
+      <th><span class="chip c-gbp">Google Business</span></th>
+      <th><span class="chip c-tt">TikTok</span></th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="name">Chỉ chữ (không media)</td><td class="yes">✔</td><td class="no">✗</td><td class="yes">✔</td><td class="no">✗</td></tr>
+      <tr><td class="name">1 ảnh</td><td class="yes">✔</td><td class="yes">✔</td><td class="yes">✔</td><td class="yes">✔</td></tr>
+      <tr><td class="name">Nhiều ảnh (album/carousel)</td><td class="yes">✔</td><td class="yes">✔</td><td class="yes">✔</td><td class="yes">✔ (tối đa 35)</td></tr>
+      <tr><td class="name">Video</td><td class="yes">✔</td><td class="yes">✔</td><td class="no">✗</td><td class="yes">✔</td></tr>
+      <tr><td class="name">Reel (1 video)</td><td class="yes">✔</td><td class="yes">✔</td><td class="no">✗</td><td class="yes">✔</td></tr>
+      <tr><td class="name">Ảnh + Video lẫn lộn</td><td class="yes">✔</td><td class="yes">✔</td><td class="soonc">Chỉ ảnh</td><td class="soonc">Chỉ video</td></tr>
+    </tbody>
+  </table>
+  <p class="lead">✔ = đăng được &nbsp;·&nbsp; ✗ = không hỗ trợ &nbsp;·&nbsp; "Chỉ ảnh/Chỉ video" = kênh chỉ lấy phần media phù hợp, bỏ phần còn lại (task nên tách riêng ảnh/video).</p>
+
+  <div class="box tip">
+    <div class="t">Mẹo tối ưu — tách task theo loại media</div>
+    <ul style="margin:4px 0">
+      <li><strong>Task ảnh</strong> (giao cho Design): chọn cả 4 kênh <span class="chip c-fb">Facebook</span> <span class="chip c-ig">Instagram</span> <span class="chip c-gbp">Google Business</span> <span class="chip c-tt">TikTok</span> — cả 4 đều nhận ảnh (TikTok tối đa 35 ảnh/bài).</li>
+      <li><strong>Task video</strong> (giao cho Editor): chọn <span class="chip c-fb">Facebook</span> <span class="chip c-ig">Instagram</span> <span class="chip c-tt">TikTok</span> — bỏ Google (Google không đăng video).</li>
+      <li>Nếu có <strong>cả ảnh và video</strong> muốn lên đủ kênh: nên <strong>tách 2 task riêng</strong> (1 ảnh, 1 video) để không kênh nào bị thiếu media.</li>
+    </ul>
+  </div>
+
+  <div class="box info">
+    <div class="t">Vì sao Google Business không đăng video?</div>
+    API bài đăng (local post) của Google Business Profile <strong>chỉ nhận ảnh</strong>. Video chỉ thêm được vào "thư viện hồ sơ" (không phải một bài đăng) nên không dùng cho luồng tự động. Vì vậy task video hãy bỏ chọn Google.
+  </div>
+
+  <!-- ===================== 5 ===================== -->
+  <h2 id="s5" class="pb">5. Quy tắc nhập Media URLs (link Google Drive)</h2>
+  <p>Toàn bộ ảnh/video lấy từ <strong>Google Drive</strong>. Hệ thống có quyền đọc Drive qua API nên bạn <strong>giữ folder Drive ở chế độ riêng tư</strong> — không cần công khai cả folder.</p>
+
+  <h3>Cách nhập đúng</h3>
+  <ul>
+    <li><strong>Mỗi dòng một link.</strong> Muốn nhiều ảnh thì xuống dòng, mỗi ảnh 1 link — <em>không</em> nhồi nhiều link chung 1 dòng.</li>
+    <li><strong>Dùng link tới TỪNG FILE</strong>, không dùng link thư mục. Link folder sẽ bị chặn với thông báo <em>"cần link từng file ảnh/video"</em>.</li>
+    <li>Lấy link file: chuột phải file trong Drive → <em>Share / Chia sẻ</em> → <em>Copy link</em>. Dạng đúng: <code>https://drive.google.com/file/d/&lt;ID_FILE&gt;/view</code>.</li>
+    <li>Thứ tự ảnh trong album = thứ tự dòng bạn nhập (trên xuống dưới).</li>
+    <li>Với <code>Post Type = Reel</code>: chỉ nhập <strong>1 link video</strong>.</li>
+  </ul>
+
+  <div class="box tip">
+    <div class="t">Ví dụ ô Media URLs cho album 3 ảnh</div>
+    <code>https://drive.google.com/file/d/1AbC.../view</code><br>
+    <code>https://drive.google.com/file/d/1DeF.../view</code><br>
+    <code>https://drive.google.com/file/d/1GhI.../view</code>
+  </div>
+
+  <div class="box warn">
+    <div class="t">Riêng tư vẫn đăng được — nhưng cần Admin bật "proxy"</div>
+    Facebook tải file trực tiếp qua server nên link Drive riêng tư dùng được ngay. <strong>Instagram / Google Business / TikTok</strong> lại yêu cầu một liên kết công khai để nền tảng tự tải về. Hệ thống xử lý bằng cách tạo <em>link công khai tạm thời</em> cho từng file rồi xóa sau khi đăng (folder Drive vẫn riêng tư). Tính năng này cần Admin cấu hình <code>PUBLIC_BASE_URL</code> (xem mục 10). Bạn <strong>chỉ cần dán link Drive như bình thường</strong>.
+  </div>
+
+  <!-- ===================== 6 ===================== -->
+  <h2 id="s6">6. Ví dụ mẫu (task chuẩn)</h2>
+
+  <div class="sample">
+    <h4>Ví dụ A — Bộ ảnh sản phẩm đăng 3 kênh</h4>
+    <div class="kv">
+      <div class="k">Post Title</div><div class="v">KM tháng 7 — bộ ảnh sản phẩm mới</div>
+      <div class="k">Primary Brand</div><div class="v">Sun Prime (chọn 1)</div>
+      <div class="k">Channel</div><div class="v"><span class="chip c-fb">Facebook</span> <span class="chip c-ig">Instagram</span> <span class="chip c-gbp">Google Business</span></div>
+      <div class="k">Post Type</div><div class="v">Post</div>
+      <div class="k">Caption</div><div class="v">🌞 Ưu đãi tháng 7! Bộ sưu tập mới đã có mặt. Ghé ngay #SunPrime #uudai</div>
+      <div class="k">Media URLs</div><div class="v"><code>.../file/d/1AbC/view</code> &nbsp;(xuống dòng)&nbsp; <code>.../file/d/1DeF/view</code> …</div>
+      <div class="k">Publish At</div><div class="v">15/07/2026 09:00</div>
+      <div class="k">Approval Status</div><div class="v">Đã duyệt</div>
+      <div class="k">Content Workflow</div><div class="v">Hoàn thành nội dung</div>
+      <div class="k">Auto Publish</div><div class="v">✔ (bật)</div>
+    </div>
+  </div>
+
+  <div class="sample">
+    <h4>Ví dụ B — Video Reel đăng Facebook + Instagram + TikTok</h4>
+    <div class="kv">
+      <div class="k">Post Title</div><div class="v">Reel giới thiệu dịch vụ 07</div>
+      <div class="k">Primary Brand</div><div class="v">Sun Prime</div>
+      <div class="k">Channel</div><div class="v"><span class="chip c-fb">Facebook</span> <span class="chip c-ig">Instagram</span> <span class="chip c-tt">TikTok</span> &nbsp;<em>(bỏ Google vì là video)</em></div>
+      <div class="k">Post Type</div><div class="v">Reel</div>
+      <div class="k">Caption</div><div class="v">Hậu trường quay TVC mới 🎬 #behindthescenes</div>
+      <div class="k">Media URLs</div><div class="v">1 link video duy nhất: <code>.../file/d/1Vid/view</code></div>
+      <div class="k">Publish At</div><div class="v">16/07/2026 20:00</div>
+      <div class="k">Auto Publish</div><div class="v">✔ (bật)</div>
+    </div>
+  </div>
+
+  <div class="sample">
+    <h4>Ví dụ C — Bài chỉ chữ (thông báo) đăng Facebook + Google Business</h4>
+    <div class="kv">
+      <div class="k">Channel</div><div class="v"><span class="chip c-fb">Facebook</span> <span class="chip c-gbp">Google Business</span> &nbsp;<em>(IG/TikTok cần media nên bỏ)</em></div>
+      <div class="k">Post Type</div><div class="v">Post</div>
+      <div class="k">Caption</div><div class="v">📢 Thông báo: cửa hàng nghỉ lễ 2/9. Xin cảm ơn quý khách!</div>
+      <div class="k">Media URLs</div><div class="v"><em>(để trống)</em></div>
+      <div class="k">Auto Publish</div><div class="v">✔ (bật)</div>
+    </div>
+  </div>
+
+  <!-- ===================== 7 ===================== -->
+  <h2 id="s7" class="pb">7. Thiết lập Brand (Brands DB)</h2>
+  <p>Mỗi brand là một dòng trong bảng <strong>Brands</strong>. Task trỏ tới brand qua <code>Primary Brand</code>. Thường quản lý setup 1 lần; sau đó content chỉ việc chọn.</p>
+  <table>
+    <thead><tr><th style="width:180px">Cột</th><th>Ý nghĩa &amp; cách điền</th></tr></thead>
+    <tbody>
+      <tr><td><code>Brand Name</code></td><td>Tên brand/Page để dễ chọn trong task.</td></tr>
+      <tr><td><code>Brand Code</code></td><td>Mã ngắn nội bộ. Cần có để task đủ điều kiện đăng.</td></tr>
+      <tr><td><code>Active</code></td><td>Tick nếu brand còn hoạt động và được phép nhận task.</td></tr>
+      <tr><td><code>Connected</code></td><td>Tick khi brand/Page đã kết nối và sẵn sàng cho automation.</td></tr>
+      <tr><td><code>Facebook Page ID</code></td><td>ID Facebook Page — điền sau khi kết nối Facebook trên website. Bắt buộc để đăng Facebook.</td></tr>
+      <tr><td><code>Instagram Account ID</code></td><td>Instagram User ID — lấy sau khi kết nối Instagram. Bắt buộc để đăng Instagram.</td></tr>
+      <tr><td><code>Google Business Profile ID</code></td><td>Dạng <code>accounts/{accountId}/locations/{locationId}</code>. Bắt buộc để đăng Google Business.</td></tr>
+      <tr><td><code>TikTok Account ID</code></td><td><code>open_id</code> của tài khoản TikTok đã kết nối. Bắt buộc để đăng TikTok.</td></tr>
+      <tr><td><code>Timezone</code></td><td>Múi giờ mặc định của brand. Mặc định <code>Asia/Ho_Chi_Minh</code>.</td></tr>
+    </tbody>
+  </table>
+  <div class="box info">
+    <div class="t">Kết nối tài khoản kênh</div>
+    ID của từng kênh (Facebook/Instagram/GBP/TikTok) được lấy sau khi <strong>bấm "Kết nối" trên website (dashboard)</strong>. Chỉ điền vào Brands những kênh mà brand đó thực sự sẽ đăng.
+  </div>
+
+  <!-- ===================== 8 ===================== -->
+  <h2 id="s8">8. Điều kiện để bài được đăng &amp; các trạng thái</h2>
+  <h3>Checklist — task đủ điều kiện đăng tự động</h3>
+  <table>
+    <tbody>
+      <tr><td style="width:24px">☐</td><td><code>Auto Publish</code> đã bật</td></tr>
+      <tr><td>☐</td><td>Đã chọn ít nhất 1 <code>Channel</code></td></tr>
+      <tr><td>☐</td><td><code>Approval Status</code> = <strong>Đã duyệt</strong></td></tr>
+      <tr><td>☐</td><td><code>Content Workflow</code> = <strong>Hoàn thành nội dung</strong></td></tr>
+      <tr><td>☐</td><td><code>Caption</code> không trống</td></tr>
+      <tr><td>☐</td><td>Có <strong>đúng 1</strong> <code>Primary Brand</code>; brand đó <code>Active</code> + <code>Connected</code> + có <code>Brand Code</code> + có ID kênh tương ứng</td></tr>
+      <tr><td>☐</td><td><code>Media URLs</code> là link <strong>từng file</strong> Drive (không phải link folder, không phải placeholder) — trừ bài chỉ-chữ trên FB/GBP</td></tr>
+      <tr><td>☐</td><td><code>Publish At</code> hợp lệ và chưa quá hạn 24 giờ</td></tr>
+      <tr><td>☐</td><td>Không bật các cột nâng cao gây chặn (mục 3)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Vòng đời trạng thái (Publish Status)</h3>
+  <table>
+    <thead><tr><th style="width:130px">Trạng thái</th><th>Ý nghĩa</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Chưa lên lịch</strong></td><td>Mặc định. Hệ thống chưa xếp lịch (chưa đủ điều kiện hoặc mới tạo).</td></tr>
+      <tr><td><strong>Đã lên lịch</strong></td><td>Đủ điều kiện, đang chờ tới <code>Publish At</code>.</td></tr>
+      <tr><td><strong>Đang đăng</strong></td><td>Hệ thống đang thực hiện đăng.</td></tr>
+      <tr><td><strong>Đã đăng</strong></td><td>Đăng thành công tất cả kênh đã chọn.</td></tr>
+      <tr><td><strong>Lỗi đăng</strong></td><td>Có kênh lỗi. Xem lý do ở <code>Notes</code>/<code>Error Message</code>. Hệ thống có thể tự thử lại (tối đa 3 lần) nếu chưa có Post ID.</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ===================== 9 ===================== -->
+  <h2 id="s9">9. Lỗi thường gặp &amp; cách tránh</h2>
+  <table>
+    <thead><tr><th style="width:44%">Triệu chứng / lý do trong Notes</th><th>Cách xử lý</th></tr></thead>
+    <tbody>
+      <tr><td>"Media URLs đang là link thư mục Drive"</td><td>Thay link folder bằng link <strong>từng file</strong> (mục 5).</td></tr>
+      <tr><td>"Tác vụ cần đúng 1 Primary Brand"</td><td>Chọn đúng 1 brand ở <code>Primary Brand</code> (không để trống, không chọn 2).</td></tr>
+      <tr><td>"Tác vụ chưa được duyệt" / "Content Workflow chưa hoàn thành"</td><td>Đặt <code>Approval Status</code> = Đã duyệt và <code>Content Workflow</code> = Hoàn thành nội dung.</td></tr>
+      <tr><td>"Caption đang trống"</td><td>Nhập nội dung vào <code>Caption</code>.</td></tr>
+      <tr><td>"Auto Publish đang tắt"</td><td>Tick <code>Auto Publish</code>.</td></tr>
+      <tr><td>"Tác vụ quá hạn hơn 24 giờ"</td><td>Cập nhật <code>Publish At</code> sang thời điểm tương lai.</td></tr>
+      <tr><td>Instagram/TikTok không đăng bài chỉ-chữ</td><td>Thêm ít nhất 1 ảnh/video, hoặc bỏ 2 kênh này khỏi task chỉ-chữ.</td></tr>
+      <tr><td>"Brand chưa có Facebook Page ID / Instagram Account ID…"</td><td>Nhờ quản lý điền ID kênh tương ứng trong Brands (mục 7).</td></tr>
+      <tr><td>Bài Facebook không tự gắn thẻ người/vị trí/feeling…</td><td>Đây là hành vi cố ý (mục 3). Bỏ các cột nâng cao nếu muốn đăng tự động.</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ===================== 10 ===================== -->
+  <h2 id="s10">10. Ghi chú kỹ thuật cho Admin</h2>
+  <ul>
+    <li><strong>Đăng ảnh/video Drive lên IG/GBP/TikTok</strong> cần biến môi trường <code>PUBLIC_BASE_URL</code> (một host công khai — deploy hoặc tunnel như Cloudflare Tunnel/ngrok). Trống = tắt proxy = các kênh PULL không dùng được link Drive riêng tư. Facebook không cần.</li>
+    <li>Tùy chọn liên quan proxy: <code>MEDIA_PROXY_DIR</code> (thư mục cache, mặc định <code>data/media-cache</code>), <code>MEDIA_PROXY_TTL_MS</code> (thời gian giữ file tạm, mặc định 2 giờ).</li>
+    <li>Vòng lặp tự đăng: <code>NOTION_AUTO_PUBLISH_INTERVAL_MS</code> (mặc định 60000ms). Session Facebook lưu in-memory → <strong>restart server sẽ mất đăng nhập</strong>, cần đăng nhập lại để auto-publish tiếp tục.</li>
+    <li>TikTok đăng được cả <strong>video</strong> và <strong>ảnh</strong> (tối đa 35 ảnh/bài). Video đẩy binary trực tiếp (<em>FILE_UPLOAD</em> — không cần verify domain); ảnh dùng <em>PULL_FROM_URL</em> nên cần bật proxy <code>PUBLIC_BASE_URL</code>. Ứng dụng TikTok chưa qua audit sẽ chỉ đăng ở mức riêng tư (<code>SELF_ONLY</code>) cho tới khi được duyệt.</li>
+    <li>TikTok/GBP cần credential riêng (<code>TIKTOK_CLIENT_KEY/SECRET</code>, allowlist Google Business v4) để hoạt động.</li>
+  </ul>
+
+  <div class="footer">
+    Tài liệu hướng dẫn nội bộ — Hệ thống đăng bài đa kênh · Notion → Facebook / Instagram / Google Business Profile / TikTok<br>
+    Mọi thông báo, ghi chú lỗi trong Notion đều bằng tiếng Việt. Khi gặp lỗi, đọc cột <b>Notes</b> để biết lý do cụ thể.
+  </div>
+
+</div>
+</body>
+</html>
