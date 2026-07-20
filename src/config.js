@@ -99,7 +99,9 @@ const config = {
     // Khoảng nghỉ tối thiểu giữa 2 bài lên CÙNG một page (ms). 0 = tắt cooldown.
     perPageCooldownMs: Math.max(0, Number(process.env.PER_PAGE_COOLDOWN_MS || 10 * 60 * 1000)),
     // Nếu số task đến hạn trong 1 tick vượt ngưỡng này => tự pause + cảnh báo, KHÔNG đăng.
-    anomalyThreshold: Math.max(1, Number(process.env.AUTO_PUBLISH_ANOMALY_THRESHOLD || 10))
+    anomalyThreshold: Math.max(1, Number(process.env.AUTO_PUBLISH_ANOMALY_THRESHOLD || 10)),
+    // true => chặn đăng khi tên page thật lệch hẳn tên Brand (mặc định chỉ cảnh báo, tránh báo nhầm).
+    strictNameMatch: String(process.env.AUTO_PUBLISH_STRICT_NAME_MATCH || "false").toLowerCase() === "true"
   },
   googleDrive: {
     clientId: googleDriveClientId,

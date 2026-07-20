@@ -1744,6 +1744,8 @@ async function scheduleResolvedTask(resolved) {
 
   try {
     await updateTaskScheduled(task, new Date());
+    // Lớp 2: chốt mục tiêu đăng dự kiến để phát hiện đổi mapping trước giờ đăng.
+    snapshotExpectedTargets(resolved);
 
     return {
       success: true,
@@ -1804,6 +1806,86 @@ async function scheduleReadyTasks(sessionPages, options = {}) {
     skippedCount: resolvedTasks.length - readyTasks.length,
     results
   };
+}
+
+// So khớp mềm tên Brand vs tên Page thật: coi là khớp nếu một bên chứa bên kia
+// hoặc chia sẻ ít nhất 1 "từ" đủ dài (>=3 ký tự) sau khi chuẩn hóa bỏ dấu.
+function namesLikelyMatch(brandName, accountName) {
+  const a = pageVisibilityService.normalizePageName(brandName);
+  const b = pageVisibilityService.normalizePageName(accountName);
+
+  if (!a || !b) {
+    return true; // thiếu dữ liệu -> không kết luận là lệch
+  }
+
+  if (a === b || a.includes(b) || b.includes(a)) {
+    return true;
+  }
+
+  const tokensA = new Set(a.split(" ").filter((token) => token.length >= 3));
+  return b.split(" ").filter((token) => token.length >= 3).some((token) => tokensA.has(token));
+}
+
+// Xác minh mục tiêu đăng NGAY TRƯỚC KHI đăng, để tránh đăng nhầm page (bộ mặt doanh nghiệp).
+// Chặn (throw) nếu: account lệch cấu hình Brand, hoặc mục tiêu đổi so với lúc lên lịch.
+// Tên lệch chỉ cảnh báo, trừ khi bật AUTO_PUBLISH_STRICT_NAME_MATCH.
+function verifyPublishTarget(resolved, channelKey, account) {
+  const { task, brand } = resolved;
+  const currentId = String((account && account.id) || "");
+  const brandConfiguredId =
+    brand && brand.channelAccounts ? String(brand.channelAccounts[channelKey] || "") : "";
+
+  if (brandConfiguredId && currentId !== brandConfiguredId) {
+    throw createPublicError(
+      409,
+      `Chặn đăng để tránh nhầm page: tài khoản đăng (${currentId}) khác Page ID cấu hình của Brand (${brandConfiguredId}).`,
+      { service: "publish-guard", context: "account_mismatch_brand", status: 409 }
+    );
+  }
+
+  const job = publishJobsService.getJob(task.id, channelKey);
+
+  if (job && job.expectedAccountId && String(job.expectedAccountId) !== currentId) {
+    throw createPublicError(
+      409,
+      `Chặn đăng: mục tiêu đăng đã thay đổi kể từ lúc lên lịch (dự kiến ${job.expectedAccountId}, hiện tại ${currentId}). Hãy kiểm tra lại Brand rồi lên lịch lại.`,
+      { service: "publish-guard", context: "account_drift_since_schedule", status: 409 }
+    );
+  }
+
+  const brandName = brand ? brand.facebookPageName || brand.name || "" : "";
+  const nameMismatch = Boolean(
+    channelKey === CHANNELS.FACEBOOK && brandName && account.name && !namesLikelyMatch(brandName, account.name)
+  );
+
+  if (nameMismatch) {
+    console.warn(`[Publish Guard] Tên lệch: Brand "${brandName}" vs Page "${account.name}" (task ${task.id}).`);
+
+    if (config.autoPublish.strictNameMatch) {
+      throw createPublicError(
+        409,
+        `Chặn đăng: tên page thật "${account.name}" không khớp tên Brand "${brandName}".`,
+        { service: "publish-guard", context: "name_mismatch_strict", status: 409 }
+      );
+    }
+  }
+
+  return { nameMismatch, brandName, accountName: (account && account.name) || "" };
+}
+
+// Chốt "mục tiêu đăng dự kiến" cho từng kênh ngay khi lên lịch (nguồn để phát hiện đổi mapping).
+function snapshotExpectedTargets(resolved) {
+  try {
+    for (const channelKey of resolved.task.channels) {
+      const resolvedChannel = resolved.channelAccounts[channelKey];
+
+      if (resolvedChannel && resolvedChannel.supported && resolvedChannel.account && resolvedChannel.account.id) {
+        publishJobsService.recordExpectedAccount(resolved.task.id, channelKey, String(resolvedChannel.account.id));
+      }
+    }
+  } catch (error) {
+    logNotionError("snapshot_expected_targets", error);
+  }
 }
 
 async function publishResolvedTask(resolved, options = {}) {
@@ -1878,6 +1960,9 @@ async function publishResolvedTask(resolved, options = {}) {
         });
         continue;
       }
+
+      // Lớp 2: xác minh đúng page trước khi đăng (chặn nếu lệch cấu hình/đổi mục tiêu).
+      verifyPublishTarget(resolved, channelKey, account);
 
       const publishResult = await publisherService.publishTaskToChannel({
         channelKey,

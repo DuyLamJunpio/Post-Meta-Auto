@@ -22,6 +22,7 @@ function mapRow(row) {
     channel: row.channel,
     status: row.status,
     accountId: row.account_id,
+    expectedAccountId: row.expected_account_id,
     postId: row.post_id,
     permalinkUrl: row.permalink_url,
     retryCount: row.retry_count,
@@ -62,16 +63,17 @@ function upsertJob(notionTaskId, channel, patch = {}) {
   if (!existing) {
     db.prepare(
       `INSERT INTO publish_jobs
-         (notion_task_id, channel, status, account_id, post_id, permalink_url,
+         (notion_task_id, channel, status, account_id, expected_account_id, post_id, permalink_url,
           retry_count, error_message, scheduled_at, published_at, created_at, updated_at)
        VALUES
-         (@notion_task_id, @channel, @status, @account_id, @post_id, @permalink_url,
+         (@notion_task_id, @channel, @status, @account_id, @expected_account_id, @post_id, @permalink_url,
           @retry_count, @error_message, @scheduled_at, @published_at, @created_at, @updated_at)`
     ).run({
       notion_task_id: taskId,
       channel: channelKey,
       status: patch.status || STATUS.PENDING,
       account_id: patch.accountId || null,
+      expected_account_id: patch.expectedAccountId || null,
       post_id: patch.postId || null,
       permalink_url: patch.permalinkUrl || null,
       retry_count: typeof patch.retryCount === "number" ? patch.retryCount : 0,
@@ -88,6 +90,8 @@ function upsertJob(notionTaskId, channel, patch = {}) {
   const next = {
     status: patch.status !== undefined ? patch.status : existing.status,
     account_id: patch.accountId !== undefined ? patch.accountId : existing.accountId,
+    expected_account_id:
+      patch.expectedAccountId !== undefined ? patch.expectedAccountId : existing.expectedAccountId,
     post_id: patch.postId !== undefined ? patch.postId : existing.postId,
     permalink_url: patch.permalinkUrl !== undefined ? patch.permalinkUrl : existing.permalinkUrl,
     retry_count: patch.retryCount !== undefined ? patch.retryCount : existing.retryCount,
@@ -100,6 +104,7 @@ function upsertJob(notionTaskId, channel, patch = {}) {
     `UPDATE publish_jobs SET
        status = @status,
        account_id = @account_id,
+       expected_account_id = @expected_account_id,
        post_id = @post_id,
        permalink_url = @permalink_url,
        retry_count = @retry_count,
@@ -116,6 +121,13 @@ function upsertJob(notionTaskId, channel, patch = {}) {
   });
 
   return getJob(taskId, channelKey);
+}
+
+// Chốt "mục tiêu đăng dự kiến" lúc lên lịch (snapshot page id) để phát hiện đổi mapping.
+function recordExpectedAccount(notionTaskId, channel, expectedAccountId) {
+  return upsertJob(notionTaskId, channel, {
+    expectedAccountId: expectedAccountId || null
+  });
 }
 
 function markPublishing(notionTaskId, channel, accountId) {
@@ -154,6 +166,7 @@ module.exports = {
   getJob,
   listJobsForTask,
   upsertJob,
+  recordExpectedAccount,
   markPublishing,
   markPublished,
   markFailed
