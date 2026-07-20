@@ -24,6 +24,8 @@ const tiktokService = require("./src/services/tiktok.service");
 const mediaProxyService = require("./src/services/media-proxy.service");
 const notionService = require("./src/services/notion.service");
 const pageVisibilityService = require("./src/services/page-visibility.service");
+const notifier = require("./src/services/notifier");
+const publishAuditService = require("./src/services/publish-audit.service");
 
 const app = express();
 
@@ -98,6 +100,81 @@ function getStoredSessions() {
   });
 }
 
+// Ghi audit + gửi cảnh báo cho kết quả một tick tự đăng (không để lỗi cảnh báo làm hỏng vòng lặp).
+async function handlePublishAlerts(result, reconcileResult) {
+  try {
+    if (result.anomaly) {
+      publishAuditService.record({ event: "paused", message: result.anomalyReason });
+      await notifier.notify({
+        level: "important",
+        title: "🛑 Tự đăng ĐÃ TẠM DỪNG (bất thường)",
+        lines: [result.anomalyReason, "Hãy kiểm tra Notion rồi bật lại qua /api/auto-publish/resume."]
+      });
+    }
+
+    for (const item of result.results || []) {
+      if (item.success) {
+        publishAuditService.record({
+          event: "published",
+          notionTaskId: item.taskId,
+          postId: item.postId,
+          permalinkUrl: item.permalinkUrl,
+          title: item.title
+        });
+        await notifier.notify({
+          level: "info",
+          title: "✅ Đã đăng bài",
+          lines: [`Bài: ${item.title || "(không tên)"}`, item.permalinkUrl || `Post ID: ${item.postId || "?"}`]
+        });
+      } else if (item.posted) {
+        publishAuditService.record({
+          event: "published",
+          notionTaskId: item.taskId,
+          postId: item.postId,
+          permalinkUrl: item.permalinkUrl,
+          title: item.title,
+          message: "Đã đăng nhưng cập nhật Notion thất bại."
+        });
+        await notifier.notify({
+          level: "important",
+          title: "⚠️ Đã đăng nhưng KHÔNG cập nhật được Notion",
+          lines: [`Bài: ${item.title || "(không tên)"}`, item.permalinkUrl || `Post ID: ${item.postId || "?"}`, "Kiểm tra để tránh xử lý trùng."]
+        });
+      } else if (!item.skipped) {
+        publishAuditService.record({
+          event: "failed",
+          notionTaskId: item.taskId,
+          title: item.title,
+          message: item.message
+        });
+        await notifier.notify({
+          level: "important",
+          title: "❌ Đăng bài THẤT BẠI",
+          lines: [`Bài: ${item.title || "(không tên)"}`, `Lý do: ${item.message || "Không rõ"}`]
+        });
+      }
+    }
+
+    for (const item of (reconcileResult && reconcileResult.results) || []) {
+      if (item.outcome === "failed") {
+        publishAuditService.record({
+          event: "failed",
+          notionTaskId: item.taskId,
+          title: item.title,
+          message: "Kẹt Đang đăng — chuyển Lỗi đăng để kiểm tra thủ công."
+        });
+        await notifier.notify({
+          level: "important",
+          title: "⚠️ Task kẹt 'Đang đăng' cần kiểm tra",
+          lines: [`Bài: ${item.title || "(không tên)"}`, "Mở page kiểm tra bài đã lên chưa TRƯỚC KHI đăng lại (tránh trùng)."]
+        });
+      }
+    }
+  } catch (error) {
+    console.warn("[Notion Auto Publish] Lỗi khi gửi cảnh báo:", error.message);
+  }
+}
+
 async function runNotionAutoPublish() {
   if (notionAutoPublishRunning) {
     return;
@@ -159,6 +236,8 @@ async function runNotionAutoPublish() {
       } else if (result.paused) {
         console.warn("[Notion Auto Publish] Đang tạm dừng (kill switch/pause) — bỏ qua đăng.");
       }
+
+      await handlePublishAlerts(result, reconcileResult);
 
       if (
         scheduleResult.attemptedCount > 0 ||

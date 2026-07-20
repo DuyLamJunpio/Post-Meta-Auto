@@ -106,6 +106,14 @@ const config = {
     // chuyển "Đã đăng", không có thì chuyển "Lỗi đăng" cho người kiểm tra (KHÔNG tự đăng lại).
     stuckPublishingMs: Math.max(60 * 1000, Number(process.env.AUTO_PUBLISH_STUCK_MS || 15 * 60 * 1000))
   },
+  // Cảnh báo quản trị viên (lưới an toàn khi DB có thể mất trên Render Free).
+  telegram: {
+    botToken: process.env.TELEGRAM_BOT_TOKEN || "",
+    chatId: process.env.TELEGRAM_CHAT_ID || "",
+    enabled: Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID),
+    // Cấp độ nhận cảnh báo: "all" = cả thành công & lỗi; "important" = chỉ lỗi/pause/thu hồi.
+    notifyLevel: (process.env.TELEGRAM_NOTIFY_LEVEL || "important").toLowerCase()
+  },
   googleDrive: {
     clientId: googleDriveClientId,
     clientSecret: googleDriveClientSecret,

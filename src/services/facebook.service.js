@@ -194,6 +194,26 @@ function canCreateContent(page) {
   return Array.isArray(page.tasks) && page.tasks.includes("CREATE_CONTENT");
 }
 
+// Thu hồi (xóa) một bài đã đăng trên Page qua Graph API. Cần Page Access Token.
+async function deletePagePost(postId, pageAccessToken) {
+  if (!postId || !pageAccessToken) {
+    throw createPublicError(400, "Thiếu Post ID hoặc Page Access Token để thu hồi bài.", {
+      service: "facebook",
+      context: "delete_post_missing_args"
+    });
+  }
+
+  try {
+    const response = await axios.delete(`${config.facebook.graphApiBaseUrl}/${postId}`, {
+      params: { access_token: pageAccessToken }
+    });
+
+    return { success: Boolean(response.data && response.data.success !== false), postId };
+  } catch (error) {
+    handleGraphError("delete_post", error, "Không thu hồi được bài đăng.");
+  }
+}
+
 function toMediaItem(media) {
   if (!media || typeof media === "string") {
     return {
