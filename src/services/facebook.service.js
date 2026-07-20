@@ -86,43 +86,105 @@ async function getFacebookUser(userAccessToken) {
   }
 }
 
-async function getManagedPages(userAccessToken) {
-  const pages = [];
-  let nextUrl = `${config.facebook.graphApiBaseUrl}/me/accounts`;
-  let params = {
-    // instagram_business_account: IG Business liên kết Page -> đăng IG bằng Page token (Cách Facebook Login).
-    fields: "id,name,access_token,tasks,picture{url},instagram_business_account{id,username,profile_picture_url}",
-    access_token: userAccessToken,
-    limit: 100
+// instagram_business_account: IG Business liên kết Page -> đăng IG bằng Page token (Cách Facebook Login).
+const PAGE_FIELDS =
+  "id,name,access_token,tasks,picture{url},instagram_business_account{id,username,profile_picture_url}";
+
+function mapPage(page) {
+  return {
+    id: page.id,
+    name: page.name,
+    pageAccessToken: page.access_token,
+    tasks: Array.isArray(page.tasks) ? page.tasks : [],
+    pictureUrl: page.picture && page.picture.data ? page.picture.data.url : null,
+    instagramBusinessAccount: page.instagram_business_account
+      ? {
+          id: page.instagram_business_account.id,
+          username: page.instagram_business_account.username || "",
+          profilePictureUrl: page.instagram_business_account.profile_picture_url || null
+        }
+      : null
   };
+}
 
+// Duyệt hết các trang phân trang của một edge Graph, trả về mảng phần tử data đã gộp.
+async function fetchAllPaged(startUrl, initialParams) {
+  const items = [];
+  let nextUrl = startUrl;
+  let params = initialParams;
+
+  while (nextUrl) {
+    const response = await axios.get(nextUrl, { params });
+    const data = response.data && response.data.data ? response.data.data : [];
+    items.push(...data);
+    nextUrl = response.data && response.data.paging ? response.data.paging.next : null;
+    params = undefined;
+  }
+
+  return items;
+}
+
+// Lấy Page nằm trong các Business Portfolio (owned_pages + client_pages) mà /me/accounts
+// bỏ sót vì tài khoản không được gán vai trò trực tiếp trên Page. Cần scope business_management.
+// Lỗi ở đây (thiếu quyền, chưa duyệt App...) không được làm hỏng luồng chính -> chỉ log và bỏ qua.
+async function getBusinessOwnedPages(userAccessToken) {
   try {
-    while (nextUrl) {
-      const response = await axios.get(nextUrl, { params });
-      const data = response.data && response.data.data ? response.data.data : [];
+    const businesses = await fetchAllPaged(`${config.facebook.graphApiBaseUrl}/me/businesses`, {
+      fields: "id,name",
+      access_token: userAccessToken,
+      limit: 100
+    });
 
-      pages.push(
-        ...data.map((page) => ({
-          id: page.id,
-          name: page.name,
-          pageAccessToken: page.access_token,
-          tasks: Array.isArray(page.tasks) ? page.tasks : [],
-          pictureUrl: page.picture && page.picture.data ? page.picture.data.url : null,
-          instagramBusinessAccount: page.instagram_business_account
-            ? {
-                id: page.instagram_business_account.id,
-                username: page.instagram_business_account.username || "",
-                profilePictureUrl: page.instagram_business_account.profile_picture_url || null
-              }
-            : null
-        }))
-      );
-
-      nextUrl = response.data && response.data.paging ? response.data.paging.next : null;
-      params = undefined;
+    const pages = [];
+    for (const business of businesses) {
+      for (const edge of ["owned_pages", "client_pages"]) {
+        try {
+          const data = await fetchAllPaged(`${config.facebook.graphApiBaseUrl}/${business.id}/${edge}`, {
+            fields: PAGE_FIELDS,
+            access_token: userAccessToken,
+            limit: 100
+          });
+          pages.push(...data);
+        } catch (edgeError) {
+          const detail = edgeError.response && edgeError.response.data ? edgeError.response.data : edgeError.message;
+          console.warn(`[Meta Graph API] Không lấy được ${edge} của business ${business.id}:`, detail);
+        }
+      }
     }
 
     return pages;
+  } catch (error) {
+    const detail = error.response && error.response.data ? error.response.data : error.message;
+    console.warn("[Meta Graph API] Không liệt kê được Business (business_management?):", detail);
+    return [];
+  }
+}
+
+async function getManagedPages(userAccessToken) {
+  try {
+    // 1) Page có vai trò trực tiếp (classic role).
+    const directPages = await fetchAllPaged(`${config.facebook.graphApiBaseUrl}/me/accounts`, {
+      fields: PAGE_FIELDS,
+      access_token: userAccessToken,
+      limit: 100
+    });
+
+    // 2) Page nằm trong Business Portfolio (không có vai trò trực tiếp).
+    const businessPages = await getBusinessOwnedPages(userAccessToken);
+
+    // Gộp và khử trùng lặp theo id; ưu tiên bản có sẵn access_token (thường từ /me/accounts).
+    const byId = new Map();
+    for (const raw of [...directPages, ...businessPages]) {
+      if (!raw || !raw.id) continue;
+      const existing = byId.get(raw.id);
+      if (!existing) {
+        byId.set(raw.id, raw);
+      } else if (!existing.access_token && raw.access_token) {
+        byId.set(raw.id, raw);
+      }
+    }
+
+    return Array.from(byId.values()).map(mapPage);
   } catch (error) {
     handleGraphError("get_pages", error, "Không lấy được danh sách Page.");
   }

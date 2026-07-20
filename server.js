@@ -4,6 +4,7 @@ const path = require("path");
 
 const { config } = require("./src/config");
 const { initDatabase } = require("./src/db");
+const { SqliteSessionStore } = require("./src/db/session-store");
 const requireAuth = require("./src/middleware/requireAuth");
 const authRoutes = require("./src/routes/auth.routes");
 const userRoutes = require("./src/routes/user.routes");
@@ -24,9 +25,20 @@ const notionService = require("./src/services/notion.service");
 const pageVisibilityService = require("./src/services/page-visibility.service");
 
 const app = express();
-const sessionStore = new session.MemoryStore();
 
 initDatabase();
+
+// Session lưu bền trong SQLite (khởi tạo sau initDatabase để bảng sessions đã có).
+const sessionStore = new SqliteSessionStore();
+
+// Deploy HTTPS sau proxy (Render...) khi PUBLIC_BASE_URL là https:
+// - trust proxy để express nhận đúng giao thức từ X-Forwarded-Proto.
+// - cookie secure để trình duyệt chỉ gửi cookie qua HTTPS.
+const isSecureDeployment = /^https:/i.test(process.env.PUBLIC_BASE_URL || "");
+
+if (isSecureDeployment) {
+  app.set("trust proxy", 1);
+}
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
@@ -39,7 +51,7 @@ app.use(
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: false,
+      secure: isSecureDeployment,
       sameSite: "lax",
       maxAge: 24 * 60 * 60 * 1000
     }

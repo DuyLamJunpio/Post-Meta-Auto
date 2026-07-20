@@ -63,6 +63,9 @@ const config = {
       "pages_show_list",
       "pages_read_engagement",
       "pages_manage_posts",
+      // business_management: liệt kê Page nằm trong Business Portfolio (owned_pages/client_pages)
+      // mà /me/accounts không trả về vì tài khoản không được gán vai trò trực tiếp trên Page.
+      "business_management",
       "instagram_basic",
       "instagram_content_publish"
     ],
