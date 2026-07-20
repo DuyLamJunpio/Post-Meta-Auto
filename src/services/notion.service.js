@@ -610,6 +610,7 @@ function mapContentPage(page) {
     primaryBrandIds: getRelationIds(page, CONTENT_PROPS.primaryBrand),
     facebookPostId: getText(page, CONTENT_PROPS.facebookPostId),
     facebookPostUrl: normalizeFacebookPostUrl(getText(page, CONTENT_PROPS.facebookPostUrl)),
+    lastSyncedAt: getText(page, CONTENT_PROPS.lastSyncedAt),
     retryCount: getNumber(page, CONTENT_PROPS.retryCount),
     manualActionRequired: getCheckbox(page, CONTENT_PROPS.manualActionRequired),
     automationKey: getText(page, CONTENT_PROPS.automationKey),
@@ -2173,6 +2174,113 @@ async function publishOverdueTasks(sessionPages, options = {}) {
   return publishTasksWithGuard(overdueTasks, resolvedTasks.length, options);
 }
 
+// Ghi "Lỗi đăng" cho task kẹt mà KHÔNG có bằng chứng đã đăng: kèm ghi chú cảnh báo
+// mạnh + bật Manual Action Required để người xử lý kiểm tra page trước khi đăng lại.
+async function updateTaskStuckFailure(task, syncedAt) {
+  const message = "Kẹt ở trạng thái Đang đăng quá lâu — cần kiểm tra thủ công.";
+  const note = [
+    `Hòa giải tự động (${formatNoteTime(syncedAt)})`,
+    `Bài: ${task.title || "(chưa có tiêu đề)"}`,
+    "",
+    "Task bị kẹt ở trạng thái Đang đăng quá lâu và hệ thống KHÔNG tìm thấy bằng chứng đã đăng (không có Post ID ở Notion lẫn cơ sở dữ liệu).",
+    "Hệ thống chuyển task sang Lỗi đăng để bạn kiểm tra thủ công.",
+    "",
+    "QUAN TRỌNG: Hãy MỞ PAGE kiểm tra xem bài đã lên hay chưa TRƯỚC KHI đăng lại, để tránh đăng trùng lên page thật."
+  ].join("\n");
+
+  await notion.pages.update({
+    page_id: task.id,
+    properties: {
+      [CONTENT_PROPS.publishStatus]: selectContent(FAILED_STATUS),
+      [CONTENT_PROPS.errorMessage]: richTextContent(message),
+      [CONTENT_PROPS.notes]: richTextContent(note),
+      [CONTENT_PROPS.manualActionRequired]: { checkbox: true },
+      [CONTENT_PROPS.lastSyncedAt]: richTextContent(syncedAt.toISOString())
+    }
+  });
+}
+
+// Hòa giải 1 task kẹt: có bằng chứng đã đăng -> "Đã đăng"; không có -> "Lỗi đăng" (không tự đăng lại).
+async function reconcileOneStuckTask(resolved) {
+  const task = resolved.task;
+  const syncedAt = new Date();
+  const jobs = publishJobsService.listJobsForTask(task.id);
+  const publishedJobs = jobs.filter(
+    (job) => job.status === publishJobsService.STATUS.PUBLISHED && job.postId
+  );
+
+  const fbJob = publishedJobs.find((job) => job.channel === CHANNELS.FACEBOOK) || null;
+  const facebookResult = task.facebookPostId
+    ? { channel: CHANNELS.FACEBOOK, postId: task.facebookPostId, permalinkUrl: task.facebookPostUrl }
+    : fbJob
+      ? { channel: CHANNELS.FACEBOOK, postId: fbJob.postId, permalinkUrl: fbJob.permalinkUrl }
+      : null;
+
+  const channelResults = publishedJobs.map((job) => ({
+    channel: job.channel,
+    postId: job.postId,
+    permalinkUrl: job.permalinkUrl
+  }));
+  const hasEvidence = Boolean(facebookResult || channelResults.length > 0);
+
+  try {
+    if (hasEvidence) {
+      await updateTaskPublishSuccess(task, facebookResult, channelResults, syncedAt);
+      console.warn(`[Notion Auto Publish] Hòa giải task kẹt -> Đã đăng (có bằng chứng): ${task.id}`);
+      return { taskId: task.id, title: task.title, outcome: "published" };
+    }
+
+    await updateTaskStuckFailure(task, syncedAt);
+    console.warn(`[Notion Auto Publish] Hòa giải task kẹt -> Lỗi đăng (không bằng chứng, cần kiểm tra): ${task.id}`);
+    return { taskId: task.id, title: task.title, outcome: "failed" };
+  } catch (error) {
+    logNotionError("reconcile_stuck_task", error);
+    return { taskId: task.id, title: task.title, outcome: "error", message: error.message };
+  }
+}
+
+// Quét các task kẹt ở "Đang đăng" quá lâu và hòa giải chúng (chống kẹt vĩnh viễn / đăng trùng).
+async function reconcileStuckPublishingTasks(sessionPages, options = {}) {
+  const resolvedTasks = await getResolvedTasks(sessionPages, {
+    driveAuth: options.driveAuth,
+    instagramAuth: options.instagramAuth,
+    gbpAuth: options.gbpAuth,
+    tiktokAuth: options.tiktokAuth
+  });
+  const now = Date.now();
+  const threshold = config.autoPublish.stuckPublishingMs;
+
+  const stuckTasks = resolvedTasks.filter((resolved) => {
+    const task = resolved.task;
+
+    if (task.publishStatus !== PUBLISHING_STATUS) {
+      return false;
+    }
+
+    const enteredAt = task.lastSyncedAt ? Date.parse(task.lastSyncedAt) : NaN;
+
+    // Không đọc được mốc thời gian -> coi như kẹt (an toàn: đưa vào hòa giải).
+    if (Number.isNaN(enteredAt)) {
+      return true;
+    }
+
+    return now - enteredAt >= threshold;
+  });
+
+  const results = [];
+
+  for (const resolved of stuckTasks) {
+    results.push(await reconcileOneStuckTask(resolved));
+  }
+
+  return {
+    stuckCount: stuckTasks.length,
+    reconciledPublished: results.filter((result) => result.outcome === "published").length,
+    reconciledFailed: results.filter((result) => result.outcome === "failed").length,
+    results
+  };
+}
+
 async function publishSingleTask(taskId, sessionPages, options = {}) {
   const resolvedTasks = await getResolvedTasks(sessionPages, {
     driveAuth: options.driveAuth,
@@ -2229,5 +2337,6 @@ module.exports = {
   scheduleReadyTasks,
   publishDueTasks,
   publishOverdueTasks,
+  reconcileStuckPublishingTasks,
   publishSingleTask
 };

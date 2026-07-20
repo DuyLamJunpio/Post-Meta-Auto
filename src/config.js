@@ -101,7 +101,10 @@ const config = {
     // Nếu số task đến hạn trong 1 tick vượt ngưỡng này => tự pause + cảnh báo, KHÔNG đăng.
     anomalyThreshold: Math.max(1, Number(process.env.AUTO_PUBLISH_ANOMALY_THRESHOLD || 10)),
     // true => chặn đăng khi tên page thật lệch hẳn tên Brand (mặc định chỉ cảnh báo, tránh báo nhầm).
-    strictNameMatch: String(process.env.AUTO_PUBLISH_STRICT_NAME_MATCH || "false").toLowerCase() === "true"
+    strictNameMatch: String(process.env.AUTO_PUBLISH_STRICT_NAME_MATCH || "false").toLowerCase() === "true",
+    // Task kẹt ở "Đang đăng" quá thời gian này (ms) => hòa giải: có bằng chứng đã đăng thì
+    // chuyển "Đã đăng", không có thì chuyển "Lỗi đăng" cho người kiểm tra (KHÔNG tự đăng lại).
+    stuckPublishingMs: Math.max(60 * 1000, Number(process.env.AUTO_PUBLISH_STUCK_MS || 15 * 60 * 1000))
   },
   googleDrive: {
     clientId: googleDriveClientId,

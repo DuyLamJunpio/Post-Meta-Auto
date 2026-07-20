@@ -125,6 +125,22 @@ async function runNotionAutoPublish() {
         continue;
       }
 
+      // Lớp 3: hòa giải task kẹt ở "Đang đăng" trước khi lên lịch/đăng (chống kẹt & đăng trùng).
+      const reconcileResult = await notionService.reconcileStuckPublishingTasks(storedSession.facebookUser.pages, {
+        driveAuth,
+        instagramAuth,
+        gbpAuth,
+        tiktokAuth
+      });
+
+      if (reconcileResult.stuckCount > 0) {
+        console.warn("[Notion Auto Publish] Hòa giải task kẹt:", {
+          stuckCount: reconcileResult.stuckCount,
+          reconciledPublished: reconcileResult.reconciledPublished,
+          reconciledFailed: reconcileResult.reconciledFailed
+        });
+      }
+
       const scheduleResult = await notionService.scheduleReadyTasks(storedSession.facebookUser.pages, {
         driveAuth,
         instagramAuth,
