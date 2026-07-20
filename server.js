@@ -15,6 +15,7 @@ const driveRoutes = require("./src/routes/drive.routes");
 const instagramRoutes = require("./src/routes/instagram.routes");
 const gbpRoutes = require("./src/routes/gbp.routes");
 const tiktokRoutes = require("./src/routes/tiktok.routes");
+const autoPublishRoutes = require("./src/routes/auto-publish.routes");
 const mediaRoutes = require("./src/routes/media.routes");
 const googleDriveService = require("./src/services/google-drive.service");
 const instagramService = require("./src/services/instagram.service");
@@ -79,6 +80,7 @@ app.use("/api", driveRoutes);
 app.use("/api", instagramRoutes);
 app.use("/api", gbpRoutes);
 app.use("/api", tiktokRoutes);
+app.use("/api", autoPublishRoutes);
 app.use("/api", notionRoutes);
 
 let notionAutoPublishRunning = false;
@@ -136,17 +138,26 @@ async function runNotionAutoPublish() {
         tiktokAuth
       });
 
+      if (result.anomaly) {
+        console.error("[Notion Auto Publish] ĐÃ TỰ PAUSE vì bất thường:", result.anomalyReason);
+      } else if (result.paused) {
+        console.warn("[Notion Auto Publish] Đang tạm dừng (kill switch/pause) — bỏ qua đăng.");
+      }
+
       if (
         scheduleResult.attemptedCount > 0 ||
         scheduleResult.failureCount > 0 ||
         result.attemptedCount > 0 ||
-        result.failureCount > 0
+        result.failureCount > 0 ||
+        result.paused
       ) {
         console.log("[Notion Auto Publish]", {
           scheduledCount: scheduleResult.successCount,
           attemptedCount: result.attemptedCount,
           successCount: result.successCount,
-          failureCount: result.failureCount
+          failureCount: result.failureCount,
+          publishedCount: result.publishedCount || 0,
+          paused: Boolean(result.paused)
         });
       }
     }

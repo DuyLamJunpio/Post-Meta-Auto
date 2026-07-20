@@ -6,6 +6,7 @@ const googleDriveService = require("./google-drive.service");
 const pageVisibilityService = require("./page-visibility.service");
 const publisherService = require("./publisher.service");
 const publishJobsService = require("./publish-jobs.service");
+const publishGuardService = require("./publish-guard.service");
 const mediaProxyService = require("./media-proxy.service");
 const {
   CHANNELS,
@@ -1956,6 +1957,108 @@ async function publishResolvedTask(resolved, options = {}) {
   }
 }
 
+// Danh sách account id (page id...) mà task sẽ đăng lên — để áp cooldown theo page.
+function getTargetAccountIds(resolved) {
+  return resolved.task.channels
+    .map((channelKey) => resolved.channelAccounts[channelKey])
+    .filter((resolvedChannel) => resolvedChannel && resolvedChannel.supported && resolvedChannel.account && resolvedChannel.account.id)
+    .map((resolvedChannel) => String(resolvedChannel.account.id));
+}
+
+// Đăng danh sách task đã sẵn sàng, ÁP CÁC LỚP PHANH AN TOÀN:
+// - Kill switch / pause runtime: không đăng gì.
+// - Ngưỡng bất thường: quá nhiều task đến hạn cùng lúc => tự pause + KHÔNG đăng.
+// - Trần số bài/tick: phần vượt trần hoãn sang lượt sau.
+// - Cooldown theo page: page vừa đăng thì hoãn để không dồn bài.
+async function publishTasksWithGuard(readyTasks, totalResolved, options) {
+  const guardStatus = publishGuardService.getStatus();
+
+  if (!publishGuardService.isActive()) {
+    return {
+      attemptedCount: 0,
+      successCount: 0,
+      failureCount: 0,
+      skippedCount: totalResolved,
+      paused: true,
+      guardStatus,
+      results: []
+    };
+  }
+
+  const threshold = config.autoPublish.anomalyThreshold;
+
+  if (readyTasks.length > threshold) {
+    const reason = `Bất thường: ${readyTasks.length} tác vụ đến hạn cùng lúc (ngưỡng ${threshold}). Đã tạm dừng tự đăng để bảo vệ page.`;
+    publishGuardService.pause(reason);
+
+    return {
+      attemptedCount: 0,
+      successCount: 0,
+      failureCount: 0,
+      skippedCount: totalResolved,
+      paused: true,
+      anomaly: true,
+      anomalyReason: reason,
+      dueCount: readyTasks.length,
+      guardStatus: publishGuardService.getStatus(),
+      results: []
+    };
+  }
+
+  const maxPerRun = config.autoPublish.maxPublishPerRun;
+  const results = [];
+  let publishedCount = 0;
+
+  for (const resolvedTask of readyTasks) {
+    if (publishedCount >= maxPerRun) {
+      results.push({
+        success: false,
+        skipped: true,
+        deferred: true,
+        taskId: resolvedTask.task.id,
+        title: resolvedTask.task.title,
+        reasons: [`Đã đạt trần ${maxPerRun} bài mỗi lượt, hoãn sang lượt sau.`]
+      });
+      continue;
+    }
+
+    const now = Date.now();
+    const accountIds = getTargetAccountIds(resolvedTask);
+    const coolingAccountId = accountIds.find((id) => !publishGuardService.canPublishToAccount(id, now));
+
+    if (coolingAccountId) {
+      const remainMinutes = Math.ceil(publishGuardService.cooldownRemainingMs(coolingAccountId, now) / 60000);
+      results.push({
+        success: false,
+        skipped: true,
+        cooldown: true,
+        taskId: resolvedTask.task.id,
+        title: resolvedTask.task.title,
+        reasons: [`Page vừa đăng, đang nghỉ giữa 2 bài (còn ~${remainMinutes} phút).`]
+      });
+      continue;
+    }
+
+    const result = await publishResolvedTask(resolvedTask, options);
+    results.push(result);
+
+    if (result.success || result.posted) {
+      const publishedAt = Date.now();
+      accountIds.forEach((id) => publishGuardService.recordPublish(id, publishedAt));
+      publishedCount += 1;
+    }
+  }
+
+  return {
+    attemptedCount: readyTasks.length,
+    successCount: results.filter((result) => result.success).length,
+    failureCount: results.filter((result) => !result.success && !result.skipped).length,
+    skippedCount: totalResolved - readyTasks.length,
+    publishedCount,
+    results
+  };
+}
+
 async function publishDueTasks(sessionPages, options = {}) {
   const resolvedTasks = await getResolvedTasks(sessionPages, {
     driveAuth: options.driveAuth,
@@ -1964,19 +2067,8 @@ async function publishDueTasks(sessionPages, options = {}) {
     tiktokAuth: options.tiktokAuth
   });
   const readyTasks = resolvedTasks.filter((resolved) => resolved.readiness.readyToPublish);
-  const results = [];
 
-  for (const resolvedTask of readyTasks) {
-    results.push(await publishResolvedTask(resolvedTask, options));
-  }
-
-  return {
-    attemptedCount: readyTasks.length,
-    successCount: results.filter((result) => result.success).length,
-    failureCount: results.filter((result) => !result.success && !result.skipped).length,
-    skippedCount: resolvedTasks.length - readyTasks.length,
-    results
-  };
+  return publishTasksWithGuard(readyTasks, resolvedTasks.length, options);
 }
 
 async function publishOverdueTasks(sessionPages, options = {}) {
@@ -1992,19 +2084,8 @@ async function publishOverdueTasks(sessionPages, options = {}) {
       resolved.readiness.overdue &&
       !resolved.readiness.tooOldOverdue
   );
-  const results = [];
 
-  for (const resolvedTask of overdueTasks) {
-    results.push(await publishResolvedTask(resolvedTask, options));
-  }
-
-  return {
-    attemptedCount: overdueTasks.length,
-    successCount: results.filter((result) => result.success).length,
-    failureCount: results.filter((result) => !result.success && !result.skipped).length,
-    skippedCount: resolvedTasks.length - overdueTasks.length,
-    results
-  };
+  return publishTasksWithGuard(overdueTasks, resolvedTasks.length, options);
 }
 
 async function publishSingleTask(taskId, sessionPages, options = {}) {

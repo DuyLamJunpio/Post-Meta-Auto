@@ -90,6 +90,17 @@ const config = {
     contentDataSourceId: process.env.NOTION_CONTENT_DATA_SOURCE_ID,
     autoPublishIntervalMs: Number(process.env.NOTION_AUTO_PUBLISH_INTERVAL_MS || 60000)
   },
+  // Lớp phanh an toàn cho vòng lặp tự đăng (chống đăng nhầm/trùng/xả hàng loạt lên page thật).
+  autoPublish: {
+    // Kill switch cứng qua env: false => vòng lặp không đăng gì (cần đổi env + restart để bật lại).
+    enabled: String(process.env.AUTO_PUBLISH_ENABLED || "true").toLowerCase() !== "false",
+    // Trần số bài đăng mỗi tick vòng lặp (mỗi session). Chặn "xả bài đồng loạt".
+    maxPublishPerRun: Math.max(1, Number(process.env.MAX_PUBLISH_PER_RUN || 5)),
+    // Khoảng nghỉ tối thiểu giữa 2 bài lên CÙNG một page (ms). 0 = tắt cooldown.
+    perPageCooldownMs: Math.max(0, Number(process.env.PER_PAGE_COOLDOWN_MS || 10 * 60 * 1000)),
+    // Nếu số task đến hạn trong 1 tick vượt ngưỡng này => tự pause + cảnh báo, KHÔNG đăng.
+    anomalyThreshold: Math.max(1, Number(process.env.AUTO_PUBLISH_ANOMALY_THRESHOLD || 10))
+  },
   googleDrive: {
     clientId: googleDriveClientId,
     clientSecret: googleDriveClientSecret,
