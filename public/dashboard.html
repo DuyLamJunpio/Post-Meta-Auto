@@ -122,6 +122,47 @@
             </div>
           </section>
 
+          <section class="content-section" id="safety">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">An toàn tự đăng</p>
+                <h2>Kiểm soát &amp; thu hồi</h2>
+                <p class="muted" id="autopublish-status" aria-live="polite">Đang kiểm tra trạng thái...</p>
+              </div>
+              <div class="actions-row flush">
+                <button class="button ghost compact" type="button" id="autopublish-refresh-button">Làm mới</button>
+                <button class="button secondary compact" type="button" id="autopublish-pause-button">Tạm dừng khẩn</button>
+                <button class="button primary compact" type="button" id="autopublish-resume-button">Bật lại</button>
+              </div>
+            </div>
+
+            <div class="safety-grid">
+              <div class="safety-card">
+                <h3>Thu hồi bài Facebook</h3>
+                <p class="muted table-subtext">Xóa nhanh một bài đã đăng khỏi Page (dùng khi lỡ đăng sai).</p>
+                <label class="field compact-field" for="retract-page-select">
+                  <span>Page</span>
+                  <select id="retract-page-select">
+                    <option value="">-- Chọn Page --</option>
+                  </select>
+                </label>
+                <label class="field compact-field" for="retract-post-id">
+                  <span>Post ID</span>
+                  <input id="retract-post-id" type="text" placeholder="Ví dụ: 123456789_987654321">
+                </label>
+                <button class="button danger compact" type="button" id="retract-button">Thu hồi bài</button>
+                <p class="muted table-subtext" id="retract-status" aria-live="polite"></p>
+              </div>
+
+              <div class="safety-card">
+                <h3>Nhật ký đăng gần đây</h3>
+                <p class="muted table-subtext">Truy vết nhanh: đã đăng / lỗi / tạm dừng / thu hồi.</p>
+                <button class="button ghost compact" type="button" id="audit-refresh-button">Tải nhật ký</button>
+                <div class="audit-list" id="audit-list"></div>
+              </div>
+            </div>
+          </section>
+
           <section class="notion-section" id="tasks">
             <div class="section-heading">
               <div>

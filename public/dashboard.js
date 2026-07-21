@@ -33,6 +33,16 @@ const channelIdListElement = document.querySelector("#channel-id-list");
 const gbpLocationsButton = document.querySelector("#gbp-locations-button");
 const gbpLocationsStatusElement = document.querySelector("#gbp-locations-status");
 const gbpLocationsListElement = document.querySelector("#gbp-locations-list");
+const autopublishStatusElement = document.querySelector("#autopublish-status");
+const autopublishRefreshButton = document.querySelector("#autopublish-refresh-button");
+const autopublishPauseButton = document.querySelector("#autopublish-pause-button");
+const autopublishResumeButton = document.querySelector("#autopublish-resume-button");
+const retractPageSelect = document.querySelector("#retract-page-select");
+const retractPostIdInput = document.querySelector("#retract-post-id");
+const retractButton = document.querySelector("#retract-button");
+const retractStatusElement = document.querySelector("#retract-status");
+const auditRefreshButton = document.querySelector("#audit-refresh-button");
+const auditListElement = document.querySelector("#audit-list");
 
 let allNotionTasks = [];
 
@@ -839,6 +849,7 @@ async function loadDashboard() {
     userNameElement.textContent = me.user.name;
     pageCountElement.textContent = pagesData.pageCount;
     renderPages(pagesData.pages);
+    populateRetractPages(pagesData.pages);
     statusElement.textContent = "";
     await Promise.all([
       loadDriveStatus(),
@@ -846,7 +857,8 @@ async function loadDashboard() {
       loadGbpStatus(),
       loadTiktokStatus(),
       loadChannelIds(),
-      loadNotionTasks()
+      loadNotionTasks(),
+      loadAutoPublishStatus()
     ]);
   } catch (error) {
     statusElement.textContent = error.message;
@@ -909,6 +921,124 @@ async function retryFailedTasks() {
   }
 }
 
+function describeAutoPublishStatus(status) {
+  if (!status.enabledByConfig) {
+    return "⛔ Đã TẮT bằng biến môi trường (AUTO_PUBLISH_ENABLED=false).";
+  }
+  if (status.paused) {
+    return `🛑 ĐANG TẠM DỪNG — ${status.pausedReason || "không rõ lý do"}.`;
+  }
+  const limits = status.limits || {};
+  return `✅ Đang hoạt động — trần ${limits.maxPublishPerRun || "?"} bài/lượt, cooldown ${Math.round((limits.perPageCooldownMs || 0) / 60000)} phút/page, ngưỡng bất thường ${limits.anomalyThreshold || "?"}.`;
+}
+
+async function loadAutoPublishStatus() {
+  try {
+    const data = await fetchJson("/api/auto-publish/status");
+    autopublishStatusElement.textContent = describeAutoPublishStatus(data.status);
+  } catch (error) {
+    autopublishStatusElement.textContent = error.message;
+  }
+}
+
+async function pauseAutoPublish() {
+  const reason = window.prompt("Lý do tạm dừng (tùy chọn):", "Tạm dừng thủ công bởi quản trị viên.");
+  if (reason === null) {
+    return;
+  }
+
+  autopublishPauseButton.disabled = true;
+  try {
+    const data = await fetchJson("/api/auto-publish/pause", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason })
+    });
+    autopublishStatusElement.textContent = describeAutoPublishStatus(data.status);
+  } catch (error) {
+    autopublishStatusElement.textContent = error.message;
+  } finally {
+    autopublishPauseButton.disabled = false;
+  }
+}
+
+async function resumeAutoPublish() {
+  autopublishResumeButton.disabled = true;
+  try {
+    const data = await fetchJson("/api/auto-publish/resume", { method: "POST" });
+    autopublishStatusElement.textContent = describeAutoPublishStatus(data.status);
+  } catch (error) {
+    autopublishStatusElement.textContent = error.message;
+  } finally {
+    autopublishResumeButton.disabled = false;
+  }
+}
+
+function populateRetractPages(pages) {
+  const options = ['<option value="">-- Chọn Page --</option>'];
+  for (const page of pages) {
+    options.push(`<option value="${page.id}">${normalizeText(page.name)} (${page.id})</option>`);
+  }
+  retractPageSelect.innerHTML = options.join("");
+}
+
+async function retractPost() {
+  const pageId = retractPageSelect.value;
+  const postId = retractPostIdInput.value.trim();
+
+  if (!pageId || !postId) {
+    retractStatusElement.textContent = "Cần chọn Page và nhập Post ID.";
+    return;
+  }
+
+  if (!window.confirm(`Thu hồi (xóa) bài ${postId} khỏi Page đã chọn? Hành động này không thể hoàn tác.`)) {
+    return;
+  }
+
+  retractButton.disabled = true;
+  retractStatusElement.textContent = "Đang thu hồi bài...";
+  try {
+    await fetchJson("/api/posts/facebook/retract", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pageId, postId })
+    });
+    retractStatusElement.textContent = "Đã thu hồi bài đăng.";
+    retractPostIdInput.value = "";
+  } catch (error) {
+    retractStatusElement.textContent = error.message;
+  } finally {
+    retractButton.disabled = false;
+  }
+}
+
+async function loadAuditLog() {
+  auditRefreshButton.disabled = true;
+  try {
+    const data = await fetchJson("/api/auto-publish/audit?limit=20");
+    const rows = data.audit || [];
+
+    if (rows.length === 0) {
+      auditListElement.textContent = "Chưa có nhật ký.";
+      return;
+    }
+
+    const eventLabels = { published: "✅ Đã đăng", failed: "❌ Lỗi", paused: "🛑 Tạm dừng", retracted: "🗑️ Thu hồi" };
+    auditListElement.innerHTML = rows
+      .map((row) => {
+        const label = eventLabels[row.event] || row.event;
+        const when = formatTime(row.created_at);
+        const detail = normalizeText(row.title || row.account_name || row.post_id || row.message || "");
+        return `<div class="audit-item"><span>${label}</span><span class="muted">${detail}</span><span class="muted table-subtext">${when}</span></div>`;
+      })
+      .join("");
+  } catch (error) {
+    auditListElement.textContent = error.message;
+  } finally {
+    auditRefreshButton.disabled = false;
+  }
+}
+
 logoutButton.addEventListener("click", async () => {
   logoutButton.disabled = true;
 
@@ -930,5 +1060,10 @@ instagramDisconnectButton.addEventListener("click", disconnectInstagram);
 gbpDisconnectButton.addEventListener("click", disconnectGbp);
 tiktokDisconnectButton.addEventListener("click", disconnectTiktok);
 gbpLocationsButton.addEventListener("click", loadGbpLocations);
+autopublishRefreshButton.addEventListener("click", loadAutoPublishStatus);
+autopublishPauseButton.addEventListener("click", pauseAutoPublish);
+autopublishResumeButton.addEventListener("click", resumeAutoPublish);
+retractButton.addEventListener("click", retractPost);
+auditRefreshButton.addEventListener("click", loadAuditLog);
 
 loadDashboard();

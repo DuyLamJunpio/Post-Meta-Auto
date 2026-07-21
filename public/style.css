@@ -870,3 +870,41 @@ select:focus {
     min-height: auto;
   }
 }
+
+/* Kiểm soát an toàn tự đăng */
+.safety-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+  margin-top: 12px;
+}
+.safety-card {
+  border: 1px solid var(--border, #e3e6ea);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.safety-card h3 {
+  margin: 0;
+  font-size: 15px;
+}
+.audit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.audit-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: baseline;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.03);
+  font-size: 13px;
+}
