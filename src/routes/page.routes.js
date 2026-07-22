@@ -12,7 +12,8 @@ router.get("/pages", (req, res) => {
       id: page.id,
       name: page.name,
       pictureUrl: page.pictureUrl,
-      canCreateContent: facebookService.canCreateContent(page)
+      canCreateContent: facebookService.canCreateContent(page),
+      instagramBusinessAccount: page.instagramBusinessAccount || null
     }));
 
   res.json({

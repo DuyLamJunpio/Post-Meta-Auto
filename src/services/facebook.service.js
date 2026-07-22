@@ -347,6 +347,34 @@ async function getPagePosts(pageId, pageAccessToken) {
   }
 }
 
+// Lấy bài đăng gần đây của tài khoản Instagram Business đã liên kết với Page.
+// Dùng chính Page Access Token (luồng IG-linked-to-Page), không cần token IG riêng.
+async function getInstagramMedia(instagramUserId, pageAccessToken) {
+  try {
+    const response = await axios.get(`${config.facebook.graphApiBaseUrl}/${instagramUserId}/media`, {
+      params: {
+        fields: "id,caption,media_type,media_url,thumbnail_url,permalink,timestamp",
+        access_token: pageAccessToken,
+        limit: 25
+      }
+    });
+
+    const media = response.data && response.data.data ? response.data.data : [];
+
+    return media.map((item) => ({
+      id: item.id,
+      caption: item.caption || "",
+      mediaType: item.media_type || "",
+      mediaUrl: item.media_url || null,
+      thumbnailUrl: item.thumbnail_url || null,
+      permalinkUrl: item.permalink || null,
+      createdTime: item.timestamp
+    }));
+  } catch (error) {
+    handleGraphError("get_instagram_media", error, "Không tải được danh sách bài đăng Instagram.");
+  }
+}
+
 async function createPagePost(pageId, pageAccessToken, message, options = {}) {
   try {
     const form = new URLSearchParams();
@@ -827,6 +855,7 @@ module.exports = {
   getManagedPages,
   canCreateContent,
   getPagePosts,
+  getInstagramMedia,
   createPagePost,
   createPageContent,
   updatePagePost,

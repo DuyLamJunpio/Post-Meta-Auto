@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Kết nối kênh — Tự động đăng bài</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/shared/tw-config.js"></script>
+  </head>
+  <body class="min-h-screen bg-slate-50 text-slate-800 font-sans antialiased">
+    <div class="flex min-h-screen">
+      <div id="sidebar-backdrop" class="fixed inset-0 z-30 bg-slate-900/40 hidden lg:hidden"></div>
+      <aside
+        id="sidebar-mount"
+        class="fixed inset-y-0 left-0 z-40 w-64 -translate-x-full transition-transform duration-200 border-r border-slate-200 bg-white lg:static lg:translate-x-0 lg:shrink-0"
+        aria-label="Điều hướng"
+      ></aside>
+
+      <div class="flex min-w-0 flex-1 flex-col">
+        <header class="sticky top-0 z-20 flex items-center gap-3 border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur lg:px-8">
+          <button data-sidebar-toggle type="button" class="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-100 lg:hidden" aria-label="Mở menu">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5" /></svg>
+          </button>
+          <div class="min-w-0">
+            <h1 class="text-lg font-bold text-slate-900">Kết nối kênh</h1>
+            <p class="text-xs text-slate-500">Kết nối/ngắt kênh và lấy ID để điền vào bảng Brands</p>
+          </div>
+        </header>
+
+        <main class="mx-auto w-full max-w-7xl flex-1 space-y-6 p-4 lg:p-8">
+          <section>
+            <h2 class="mb-3 text-sm font-semibold text-slate-900">Kênh đăng</h2>
+            <div id="channels-mount" class="grid grid-cols-1 gap-4 md:grid-cols-2"></div>
+          </section>
+
+          <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div class="mb-1 flex items-center justify-between">
+              <h2 class="text-sm font-semibold text-slate-900">ID kênh để điền vào Brands</h2>
+            </div>
+            <p class="mb-4 text-xs text-slate-500">Copy ID rồi dán vào đúng cột trong bảng Brands (mỗi kênh một cột).</p>
+            <div id="channel-ids-mount" class="divide-y divide-slate-100"></div>
+
+            <div class="mt-5 border-t border-slate-100 pt-4">
+              <button id="gbp-locations-button" type="button" class="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">
+                Tải danh sách địa điểm Google Business
+              </button>
+              <p id="gbp-locations-status" class="mt-2 text-xs text-slate-500" aria-live="polite"></p>
+              <div id="gbp-locations-list" class="mt-2 divide-y divide-slate-100"></div>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <script type="module" src="/settings.js"></script>
+  </body>
+</html>

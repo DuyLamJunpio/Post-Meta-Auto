@@ -130,6 +130,33 @@ router.get("/pages/:pageId/posts", async (req, res, next) => {
   }
 });
 
+router.get("/pages/:pageId/instagram/media", async (req, res, next) => {
+  try {
+    const page = findSessionPage(req);
+    ensurePage(page);
+
+    const igAccount = page.instagramBusinessAccount;
+
+    if (!igAccount || !igAccount.id) {
+      throw createPublicError(400, "Page này chưa liên kết tài khoản Instagram Business.");
+    }
+
+    const media = await facebookService.getInstagramMedia(igAccount.id, page.pageAccessToken);
+
+    res.json({
+      success: true,
+      instagram: {
+        id: igAccount.id,
+        username: igAccount.username || "",
+        profilePictureUrl: igAccount.profilePictureUrl || null
+      },
+      media
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.post("/pages/:pageId/posts", async (req, res, next) => {
   try {
     const page = findSessionPage(req);

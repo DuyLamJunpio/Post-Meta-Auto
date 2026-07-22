@@ -1,250 +1,79 @@
 <!doctype html>
 <html lang="vi">
   <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Bảng điều khiển - Tự động đăng bài Facebook</title>
-    <link rel="stylesheet" href="/style.css">
-    <script src="/dashboard.js" defer></script>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tổng quan — Tự động đăng bài</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/shared/tw-config.js"></script>
   </head>
-  <body class="admin-body">
-    <div class="admin-shell">
-      <aside class="sidenav" aria-label="Điều hướng quản trị">
-        <div class="sidenav-brand">
-          <div class="sidenav-logo">f</div>
-          <div>
-            <span class="sidenav-title">Notion Facebook</span>
-            <span class="sidenav-subtitle">Bảng quản trị tự động đăng bài</span>
-          </div>
-        </div>
-        <nav class="sidenav-menu">
-          <a class="sidenav-link active" href="/dashboard.html">
-            <span class="sidenav-link-icon">T</span>
-            <span>Tổng quan</span>
-          </a>
-          <a class="sidenav-link" href="#tasks">
-            <span class="sidenav-link-icon">N</span>
-            <span>Tác vụ Notion</span>
-          </a>
-          <a class="sidenav-link" href="#pages">
-            <span class="sidenav-link-icon">P</span>
-            <span>Facebook Page</span>
-          </a>
-          <a class="sidenav-link" href="/auth/google/drive">
-            <span class="sidenav-link-icon">D</span>
-            <span>Google Drive</span>
-          </a>
-          <a class="sidenav-link" href="/auth/instagram">
-            <span class="sidenav-link-icon">I</span>
-            <span>Instagram</span>
-          </a>
-          <a class="sidenav-link" href="/auth/google/business">
-            <span class="sidenav-link-icon">G</span>
-            <span>Google Business</span>
-          </a>
-          <a class="sidenav-link" href="/auth/tiktok">
-            <span class="sidenav-link-icon">TT</span>
-            <span>TikTok</span>
-          </a>
-        </nav>
-        <div class="sidenav-footer">
-          <button class="button ghost wide" type="button" id="logout-button">Đăng xuất</button>
-        </div>
-      </aside>
+  <body class="min-h-screen bg-slate-50 text-slate-800 font-sans antialiased">
+    <div class="flex min-h-screen">
+      <div id="sidebar-backdrop" class="fixed inset-0 z-30 bg-slate-900/40 hidden lg:hidden"></div>
+      <aside
+        id="sidebar-mount"
+        class="fixed inset-y-0 left-0 z-40 w-64 -translate-x-full transition-transform duration-200 border-r border-slate-200 bg-white lg:static lg:translate-x-0 lg:shrink-0"
+        aria-label="Điều hướng"
+      ></aside>
 
-      <div class="main-panel">
-        <header class="topbar">
-          <div>
-            <p class="eyebrow">Notion → Facebook Page</p>
-            <h1>Bảng điều khiển</h1>
-            <p class="muted">Tổng quan vận hành</p>
+      <div class="flex min-w-0 flex-1 flex-col">
+        <header class="sticky top-0 z-20 flex items-center gap-3 border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur lg:px-8">
+          <button data-sidebar-toggle type="button" class="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-100 lg:hidden" aria-label="Mở menu">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5" /></svg>
+          </button>
+          <div class="min-w-0 flex-1">
+            <h1 class="text-lg font-bold text-slate-900">Tổng quan</h1>
+            <p id="overview-user" class="text-xs text-slate-500">Đang tải tài khoản...</p>
           </div>
-          <div class="actions-row flush">
-            <button class="button primary" type="button" id="publish-due-button">Xử lý tác vụ đến hạn</button>
-            <button class="button secondary" type="button" id="publish-overdue-button">Đăng lại bài quá hạn</button>
-            <button class="button ghost" type="button" id="retry-failed-button">Chuẩn bị đăng lại lỗi</button>
+          <div class="hidden gap-2 sm:flex">
+            <button id="publish-due" type="button" class="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600">Xử lý đến hạn</button>
+            <button id="publish-overdue" type="button" class="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">Đăng lại quá hạn</button>
+            <button id="retry-failed" type="button" class="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">Chuẩn bị lỗi</button>
           </div>
         </header>
 
-        <main class="layout">
-          <section class="summary-band" aria-label="Chỉ số tổng quan">
-            <div>
-              <p class="muted">Tài khoản đang kết nối</p>
-              <h2 id="user-name">Đang tải...</h2>
+        <main class="mx-auto w-full max-w-7xl flex-1 space-y-6 p-4 lg:p-8">
+          <p id="overview-status" class="text-sm text-slate-500" aria-live="polite"></p>
+
+          <!-- Chỉ số -->
+          <section class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p class="text-sm text-slate-500">Page quản lý</p>
+              <p id="metric-pages" class="mt-1 text-3xl font-bold text-slate-900">—</p>
             </div>
-            <div>
-              <p class="muted">Page có thể quản lý</p>
-              <strong class="metric" id="page-count">0</strong>
+            <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p class="text-sm text-slate-500">Sẵn sàng vào lịch</p>
+              <p id="metric-ready" class="mt-1 text-3xl font-bold text-emerald-600">—</p>
             </div>
-            <div>
-              <p class="muted">Sẵn sàng vào lịch</p>
-              <strong class="metric" id="notion-ready-count">0</strong>
+            <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p class="text-sm text-slate-500">Sẵn sàng đăng</p>
+              <p id="metric-publish" class="mt-1 text-3xl font-bold text-brand-600">—</p>
             </div>
-            <div>
-              <p class="muted">Quá hạn dưới 24 giờ</p>
-              <strong class="metric" id="notion-overdue-count">0</strong>
-            </div>
-            <div>
-              <p class="muted">Google Drive</p>
-              <strong class="metric small" id="drive-status">Đang kiểm tra</strong>
-              <div class="summary-actions">
-                <a class="button secondary compact" href="/auth/google/drive" id="drive-connect-link">Kết nối Drive</a>
-                <button class="button ghost compact" type="button" id="drive-disconnect-button" hidden>Ngắt kết nối</button>
-              </div>
-              <p class="muted table-subtext" id="drive-status-detail"></p>
-            </div>
-            <div>
-              <p class="muted">Instagram</p>
-              <strong class="metric small" id="instagram-status">&#272;ang ki&#7875;m tra</strong>
-              <div class="summary-actions">
-                <a class="button secondary compact" href="/auth/instagram" id="instagram-connect-link">K&#7871;t n&#7889;i IG</a>
-                <button class="button ghost compact" type="button" id="instagram-disconnect-button" hidden>Ng&#7855;t k&#7871;t n&#7889;i</button>
-              </div>
-              <p class="muted table-subtext" id="instagram-status-detail"></p>
-            </div>
-            <div>
-              <p class="muted">Google Business Profile</p>
-              <strong class="metric small" id="gbp-status">Đang kiểm tra</strong>
-              <div class="summary-actions">
-                <a class="button secondary compact" href="/auth/google/business" id="gbp-connect-link">Kết nối GBP</a>
-                <button class="button ghost compact" type="button" id="gbp-disconnect-button" hidden>Ngắt kết nối</button>
-              </div>
-              <p class="muted table-subtext" id="gbp-status-detail"></p>
-            </div>
-            <div>
-              <p class="muted">TikTok</p>
-              <strong class="metric small" id="tiktok-status">Đang kiểm tra</strong>
-              <div class="summary-actions">
-                <a class="button secondary compact" href="/auth/tiktok" id="tiktok-connect-link">Kết nối TikTok</a>
-                <button class="button ghost compact" type="button" id="tiktok-disconnect-button" hidden>Ngắt kết nối</button>
-              </div>
-              <p class="muted table-subtext" id="tiktok-status-detail"></p>
+            <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p class="text-sm text-slate-500">Quá hạn &lt; 24 giờ</p>
+              <p id="metric-overdue" class="mt-1 text-3xl font-bold text-amber-600">—</p>
             </div>
           </section>
 
-          <section class="content-section" id="safety">
-            <div class="section-heading">
-              <div>
-                <p class="eyebrow">An toàn tự đăng</p>
-                <h2>Kiểm soát &amp; thu hồi</h2>
-                <p class="muted" id="autopublish-status" aria-live="polite">Đang kiểm tra trạng thái...</p>
-              </div>
-              <div class="actions-row flush">
-                <button class="button ghost compact" type="button" id="autopublish-refresh-button">Làm mới</button>
-                <button class="button secondary compact" type="button" id="autopublish-pause-button">Tạm dừng khẩn</button>
-                <button class="button primary compact" type="button" id="autopublish-resume-button">Bật lại</button>
-              </div>
-            </div>
-
-            <div class="safety-grid">
-              <div class="safety-card">
-                <h3>Thu hồi bài Facebook</h3>
-                <p class="muted table-subtext">Xóa nhanh một bài đã đăng khỏi Page (dùng khi lỡ đăng sai).</p>
-                <label class="field compact-field" for="retract-page-select">
-                  <span>Page</span>
-                  <select id="retract-page-select">
-                    <option value="">-- Chọn Page --</option>
-                  </select>
-                </label>
-                <label class="field compact-field" for="retract-post-id">
-                  <span>Post ID</span>
-                  <input id="retract-post-id" type="text" placeholder="Ví dụ: 123456789_987654321">
-                </label>
-                <button class="button danger compact" type="button" id="retract-button">Thu hồi bài</button>
-                <p class="muted table-subtext" id="retract-status" aria-live="polite"></p>
-              </div>
-
-              <div class="safety-card">
-                <h3>Nhật ký đăng gần đây</h3>
-                <p class="muted table-subtext">Truy vết nhanh: đã đăng / lỗi / tạm dừng / thu hồi.</p>
-                <button class="button ghost compact" type="button" id="audit-refresh-button">Tải nhật ký</button>
-                <div class="audit-list" id="audit-list"></div>
-              </div>
-            </div>
+          <!-- Hành động nhanh (mobile) -->
+          <section class="flex flex-wrap gap-2 sm:hidden">
+            <button id="publish-due-m" type="button" class="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white">Xử lý đến hạn</button>
+            <button id="publish-overdue-m" type="button" class="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600">Đăng lại quá hạn</button>
+            <button id="retry-failed-m" type="button" class="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600">Chuẩn bị lỗi</button>
           </section>
 
-          <section class="notion-section" id="tasks">
-            <div class="section-heading">
-              <div>
-                <p class="eyebrow">Hàng đợi tự động</p>
-                <h2>Tác vụ Notion</h2>
-                <p class="muted" id="notion-status" aria-live="polite"></p>
-              </div>
+          <!-- Trạng thái kênh -->
+          <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div class="mb-4 flex items-center justify-between">
+              <h2 class="text-sm font-semibold text-slate-900">Trạng thái kết nối kênh</h2>
+              <a href="/settings.html" class="text-sm font-medium text-brand-600 hover:underline">Quản lý →</a>
             </div>
-            <div class="table-toolbar">
-              <label class="field compact-field" for="task-search">
-                <span>Tìm kiếm</span>
-                <input id="task-search" type="search" placeholder="Tìm theo tiêu đề, Page, nội dung...">
-              </label>
-              <label class="field compact-field" for="task-stage-filter">
-                <span>Trạng thái</span>
-                <select id="task-stage-filter">
-                  <option value="all">Tất cả</option>
-                  <option value="published">Đã đăng</option>
-                  <option value="ready_to_schedule">Sẵn sàng vào lịch</option>
-                  <option value="ready_to_publish">Sẵn sàng đăng</option>
-                  <option value="publishing">Đang đăng</option>
-                  <option value="failed">Lỗi đăng</option>
-                  <option value="manual">Đăng thủ công</option>
-                  <option value="blocked">Cần kiểm tra</option>
-                  <option value="overdue">Quá hạn dưới 24 giờ</option>
-                </select>
-              </label>
-              <label class="field compact-field" for="task-page-filter">
-                <span>Page</span>
-                <select id="task-page-filter">
-                  <option value="all">Tất cả Page</option>
-                </select>
-              </label>
-            </div>
-            <div class="table-wrap">
-              <table class="data-table">
-                <thead>
-                  <tr>
-                    <th>Tác vụ</th>
-                    <th>Page</th>
-                    <th>Lịch đăng</th>
-                    <th>Định dạng</th>
-                    <th>Trạng thái đăng</th>
-                    <th>Phân loại</th>
-                    <th>Lỗi</th>
-                    <th>Lý do</th>
-                    <th>Hành động</th>
-                  </tr>
-                </thead>
-                <tbody id="notion-task-list"></tbody>
-              </table>
-            </div>
-          </section>
-
-          <section class="content-section" id="pages">
-            <div class="section-heading">
-              <div>
-                <p class="eyebrow">Facebook</p>
-                <h2>Danh sách Page</h2>
-              </div>
-              <p class="muted" id="dashboard-status" aria-live="polite"></p>
-            </div>
-            <div class="page-grid" id="page-list"></div>
-          </section>
-
-          <section class="content-section" id="channel-ids">
-            <div class="section-heading">
-              <div>
-                <p class="eyebrow">Thiết lập Notion</p>
-                <h2>ID kênh để điền vào Brands</h2>
-              </div>
-              <p class="muted">Copy ID rồi dán vào đúng cột trong bảng Brands (mỗi kênh một cột).</p>
-            </div>
-            <div class="channel-id-list" id="channel-id-list"></div>
-            <div class="gbp-locations-block">
-              <button class="button ghost compact" type="button" id="gbp-locations-button">Tải danh sách địa điểm Google Business</button>
-              <p class="muted" id="gbp-locations-status" aria-live="polite"></p>
-              <div class="channel-id-list" id="gbp-locations-list"></div>
-            </div>
+            <div id="channel-status" class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4"></div>
           </section>
         </main>
       </div>
     </div>
+
+    <script type="module" src="/dashboard.js"></script>
   </body>
 </html>
