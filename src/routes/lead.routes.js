@@ -1,6 +1,7 @@
 const express = require("express");
 
 const leadService = require("../services/lead.service");
+const notionLeadsService = require("../services/notion-leads.service");
 const notifier = require("../services/notifier");
 
 // Luồng thu lead CÔNG KHAI (không qua requireAuth): khách đăng nhập Facebook tối thiểu,
@@ -108,6 +109,18 @@ publicRouter.post("/submit", async (req, res, next) => {
       ]
     });
 
+    // Đẩy lead vào Notion (best-effort — không chặn phản hồi cho khách).
+    await notionLeadsService.pushLead({
+      fbId: profile.id,
+      name,
+      email: email || profile.email || "",
+      phone,
+      note,
+      consent: true,
+      consentAt: saved.createdAt,
+      source: "web-form"
+    });
+
     // Xóa hồ sơ tạm để lần đăng ký sau là phiên mới.
     delete req.session.leadProfile;
 
@@ -121,6 +134,25 @@ publicRouter.post("/submit", async (req, res, next) => {
 adminRouter.get("/leads", (req, res, next) => {
   try {
     res.json({ success: true, leads: leadService.listLeads(Number(req.query.limit) || 100) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Admin: trạng thái bảng Leads trong Notion.
+adminRouter.get("/leads/notion/status", (req, res) => {
+  res.json({ success: true, status: notionLeadsService.getStatus() });
+});
+
+// Admin: tạo bảng Leads trong Notion (dưới trang cha NOTION_LEADS_PARENT_PAGE_ID).
+adminRouter.post("/leads/notion/setup", async (req, res, next) => {
+  try {
+    const result = await notionLeadsService.createLeadsDatabase();
+    res.json({
+      success: true,
+      message: "Đã tạo bảng Leads trong Notion. Hãy đặt NOTION_LEADS_DATA_SOURCE_ID để giữ ổn định qua redeploy.",
+      ...result
+    });
   } catch (error) {
     next(error);
   }

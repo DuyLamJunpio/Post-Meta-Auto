@@ -6,6 +6,9 @@ mountShell("/leads.html");
 const listEl = document.querySelector("#leads-list");
 const statusEl = document.querySelector("#leads-status");
 const refreshButton = document.querySelector("#refresh-button");
+const notionStatusEl = document.querySelector("#notion-status");
+const createNotionButton = document.querySelector("#create-notion-button");
+const notionDetailEl = document.querySelector("#notion-detail");
 
 function badge(text, ok) {
   return el("span", {
@@ -48,5 +51,53 @@ async function loadLeads() {
   }
 }
 
+async function loadNotionStatus() {
+  try {
+    const data = await fetchJson("/api/leads/notion/status");
+    const status = data.status || {};
+
+    if (status.dataSourceId) {
+      notionStatusEl.textContent = status.fromEnv
+        ? "✅ Đang đồng bộ lead sang Notion (id lấy từ biến môi trường — ổn định)."
+        : "✅ Đang đồng bộ lead sang Notion. Nên đặt NOTION_LEADS_DATA_SOURCE_ID để giữ ổn định qua redeploy.";
+      createNotionButton.classList.add("hidden");
+      notionDetailEl.textContent = `NOTION_LEADS_DATA_SOURCE_ID=${status.dataSourceId}`;
+      notionDetailEl.classList.remove("hidden");
+      return;
+    }
+
+    notionDetailEl.classList.add("hidden");
+    if (status.parentConfigured) {
+      notionStatusEl.textContent = "Chưa có bảng Leads. Bấm nút để tạo bảng trong Notion.";
+      createNotionButton.classList.remove("hidden");
+    } else {
+      notionStatusEl.textContent =
+        "Chưa bật. Cần đặt NOTION_LEADS_PARENT_PAGE_ID (trang Notion đã chia sẻ với integration) rồi tải lại.";
+      createNotionButton.classList.add("hidden");
+    }
+  } catch (error) {
+    notionStatusEl.textContent = error.message;
+  }
+}
+
+async function createNotionTable() {
+  createNotionButton.disabled = true;
+  notionStatusEl.textContent = "Đang tạo bảng Leads trong Notion...";
+  try {
+    const data = await fetchJson("/api/leads/notion/setup", { method: "POST" });
+    notionStatusEl.textContent = data.message || "Đã tạo bảng Leads.";
+    if (data.dataSourceId) {
+      notionDetailEl.textContent = `NOTION_LEADS_DATA_SOURCE_ID=${data.dataSourceId}`;
+      notionDetailEl.classList.remove("hidden");
+    }
+    createNotionButton.classList.add("hidden");
+  } catch (error) {
+    notionStatusEl.textContent = error.message;
+    createNotionButton.disabled = false;
+  }
+}
+
+createNotionButton.addEventListener("click", createNotionTable);
 refreshButton.addEventListener("click", loadLeads);
 loadLeads();
+loadNotionStatus();
