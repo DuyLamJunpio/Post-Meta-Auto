@@ -7,6 +7,7 @@ const pageVisibilityService = require("./page-visibility.service");
 const publisherService = require("./publisher.service");
 const publishJobsService = require("./publish-jobs.service");
 const publishGuardService = require("./publish-guard.service");
+const channelToggleService = require("./channel-toggle.service");
 const mediaProxyService = require("./media-proxy.service");
 const {
   CHANNELS,
@@ -1910,13 +1911,33 @@ async function publishResolvedTask(resolved, options = {}) {
     return Boolean(resolvedChannel && resolvedChannel.supported && resolvedChannel.account);
   });
 
+  // Lọc kênh bị TẮT tự đăng theo brand. Chỉ áp dụng cho luồng tự động
+  // (options.respectChannelToggles); đăng thủ công từng task không bị chặn.
+  let activeChannels = targetChannels;
+  if (options.respectChannelToggles && resolved.brand && resolved.brand.id) {
+    activeChannels = targetChannels.filter((channelKey) =>
+      channelToggleService.isChannelEnabled(resolved.brand.id, channelKey)
+    );
+
+    if (activeChannels.length === 0) {
+      return {
+        success: false,
+        skipped: true,
+        channelDisabled: true,
+        taskId: task.id,
+        title: task.title,
+        reasons: ["Đã tắt tự đăng cho (các) kênh của brand này."]
+      };
+    }
+  }
+
   let mediaItems = [];
   let publicMediaUrls = null;
   const proxyFilenames = [];
   const channelResults = [];
 
   try {
-    if (targetChannels.length === 0) {
+    if (activeChannels.length === 0) {
       throw createPublicError(400, "Không resolve được kênh nào để đăng cho tác vụ này.", {
         service: "publisher",
         context: "resolve_channels"
@@ -1929,7 +1950,7 @@ async function publishResolvedTask(resolved, options = {}) {
 
     // Kênh PULL (IG/GBP/TikTok) không nhận buffer — cần URL công khai. Nếu bật proxy, phát lại
     // buffer Drive thành URL công khai tạm (đuôi file đúng) để nền tảng fetch; xóa sau khi đăng.
-    const needsPublicUrls = targetChannels.some((channelKey) => channelKey !== CHANNELS.FACEBOOK);
+    const needsPublicUrls = activeChannels.some((channelKey) => channelKey !== CHANNELS.FACEBOOK);
 
     if (needsPublicUrls && mediaProxyService.isEnabled()) {
       publicMediaUrls = mediaItems.map((item) => {
@@ -1946,7 +1967,7 @@ async function publishResolvedTask(resolved, options = {}) {
       });
     }
 
-    for (const channelKey of targetChannels) {
+    for (const channelKey of activeChannels) {
       const account = resolved.channelAccounts[channelKey].account;
 
       // publish_jobs là nguồn sự thật: kênh đã đăng thành công thì bỏ qua (chống trùng khi retry đa kênh).
@@ -2154,7 +2175,7 @@ async function publishDueTasks(sessionPages, options = {}) {
   });
   const readyTasks = resolvedTasks.filter((resolved) => resolved.readiness.readyToPublish);
 
-  return publishTasksWithGuard(readyTasks, resolvedTasks.length, options);
+  return publishTasksWithGuard(readyTasks, resolvedTasks.length, { ...options, respectChannelToggles: true });
 }
 
 async function publishOverdueTasks(sessionPages, options = {}) {
@@ -2171,7 +2192,7 @@ async function publishOverdueTasks(sessionPages, options = {}) {
       !resolved.readiness.tooOldOverdue
   );
 
-  return publishTasksWithGuard(overdueTasks, resolvedTasks.length, options);
+  return publishTasksWithGuard(overdueTasks, resolvedTasks.length, { ...options, respectChannelToggles: true });
 }
 
 // Ghi "Lỗi đăng" cho task kẹt mà KHÔNG có bằng chứng đã đăng: kèm ghi chú cảnh báo
@@ -2329,8 +2350,42 @@ async function publishSingleTask(taskId, sessionPages, options = {}) {
   return publishResolvedTask(resolvedTask, options);
 }
 
+// Danh sách brand × kênh kèm trạng thái bật/tắt tự đăng (cho UI điều khiển).
+async function listBrandChannelToggles() {
+  const brandsById = await getBrandsById();
+
+  return [...brandsById.values()]
+    .map((brand) => {
+      const accounts = brand.channelAccounts || {};
+      const channels = Object.keys(CHANNEL_BRAND_ACCOUNT_FIELD)
+        .filter((channelKey) => accounts[channelKey])
+        .map((channelKey) => ({
+          key: channelKey,
+          label: CHANNEL_LABELS[channelKey] || channelKey,
+          enabled: channelToggleService.isChannelEnabled(brand.id, channelKey)
+        }));
+
+      return { id: brand.id, name: brand.name, active: brand.active, channels };
+    })
+    .filter((brand) => brand.channels.length > 0);
+}
+
+function setBrandChannelToggle(brandId, channel, enabled) {
+  if (!brandId || !channel) {
+    throw createPublicError(400, "Thiếu brandId hoặc channel.");
+  }
+
+  if (!Object.values(CHANNELS).includes(channel)) {
+    throw createPublicError(400, "Kênh không hợp lệ.");
+  }
+
+  return channelToggleService.setChannelEnabled(brandId, channel, enabled);
+}
+
 module.exports = {
   syncInstagramAccountIds,
+  listBrandChannelToggles,
+  setBrandChannelToggle,
   listTasksForSession,
   markTaskManualPostSuccess,
   prepareFailedTasksForRetry,

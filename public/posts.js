@@ -383,6 +383,75 @@ async function loadAudit() {
   }
 }
 
+// ---------- Bật/tắt tự đăng theo kênh ----------
+
+const togglesMount = document.querySelector("#toggles-mount");
+
+function toggleSwitch(brand, channel) {
+  const btn = el("button", {
+    class: toggleClass(channel.enabled),
+    attrs: { type: "button", role: "switch", "aria-checked": channel.enabled ? "true" : "false" }
+  }, el("span", { class: toggleKnobClass(channel.enabled) }));
+
+  btn.addEventListener("click", async () => {
+    const next = !(btn.getAttribute("aria-checked") === "true");
+    btn.disabled = true;
+    try {
+      const data = await fetchJson("/api/notion/channel-toggles", {
+        method: "POST",
+        body: JSON.stringify({ brandId: brand.id, channel: channel.key, enabled: next })
+      });
+      const enabled = Boolean(data.enabled);
+      btn.setAttribute("aria-checked", enabled ? "true" : "false");
+      btn.className = toggleClass(enabled);
+      btn.firstChild.className = toggleKnobClass(enabled);
+    } catch (error) {
+      window.alert(error.message);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  return btn;
+}
+
+function toggleClass(on) {
+  return `relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${on ? "bg-emerald-500" : "bg-slate-300"} disabled:opacity-50`;
+}
+function toggleKnobClass(on) {
+  return `inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${on ? "translate-x-5" : "translate-x-1"}`;
+}
+
+async function loadToggles() {
+  togglesMount.textContent = "Đang tải...";
+  try {
+    const data = await fetchJson("/api/notion/channel-toggles");
+    const brands = (data && data.brands) || [];
+    if (brands.length === 0) {
+      togglesMount.textContent = "Chưa có brand nào có ID kênh. Điền ID kênh trong bảng Brands trước.";
+      return;
+    }
+    togglesMount.replaceChildren(
+      ...brands.map((brand) =>
+        el("div", { class: "rounded-xl border border-slate-100 bg-slate-50 p-3" }, [
+          el("div", { class: "mb-2 flex items-center gap-2" }, [
+            el("p", { class: "text-sm font-semibold text-slate-800", text: brand.name || "(Brand chưa đặt tên)" }),
+            brand.active ? null : el("span", { class: "rounded-full bg-slate-200 px-2 py-0.5 text-xs text-slate-500", text: "Ngừng" })
+          ]),
+          el("div", { class: "flex flex-wrap gap-4" }, brand.channels.map((channel) =>
+            el("label", { class: "inline-flex items-center gap-2" }, [
+              toggleSwitch(brand, channel),
+              el("span", { class: "text-sm text-slate-600", text: channel.label })
+            ])
+          ))
+        ])
+      )
+    );
+  } catch (error) {
+    togglesMount.textContent = error.message;
+  }
+}
+
 // ---------- Wiring ----------
 
 pageFilter.addEventListener("change", onSelectPage);
@@ -390,6 +459,8 @@ document.querySelector("#autopublish-refresh").addEventListener("click", loadAut
 document.querySelector("#autopublish-pause").addEventListener("click", pauseAutoPublish);
 document.querySelector("#autopublish-resume").addEventListener("click", resumeAutoPublish);
 document.querySelector("#audit-refresh").addEventListener("click", loadAudit);
+document.querySelector("#toggles-refresh").addEventListener("click", loadToggles);
 
 loadPages();
 loadAutoPublishStatus();
+loadToggles();

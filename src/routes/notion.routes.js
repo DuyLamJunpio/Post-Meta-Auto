@@ -41,6 +41,33 @@ router.post("/notion/sync-instagram-ids", async (req, res, next) => {
   }
 });
 
+router.get("/notion/channel-toggles", async (req, res, next) => {
+  try {
+    const brands = await notionService.listBrandChannelToggles();
+    res.json({ success: true, brands });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/notion/channel-toggles", (req, res, next) => {
+  try {
+    const brandId = req.body && req.body.brandId ? String(req.body.brandId) : "";
+    const channel = req.body && req.body.channel ? String(req.body.channel) : "";
+    const enabled = Boolean(req.body && req.body.enabled);
+
+    const result = notionService.setBrandChannelToggle(brandId, channel, enabled);
+
+    res.json({
+      success: true,
+      message: enabled ? "Đã bật tự đăng cho kênh này." : "Đã tắt tự đăng cho kênh này.",
+      enabled: result
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.post("/notion/publish-due", async (req, res, next) => {
   try {
     const driveAuth = googleDriveService.getSessionAuth(req.session);
