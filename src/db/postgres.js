@@ -57,7 +57,21 @@ async function initAccountSchema() {
     )
   `;
 
-  console.log("[Postgres] Bảng users + user_facebook sẵn sàng.");
+  // Kết nối Notion theo từng tài khoản (OAuth) + 2 data source đã chọn.
+  await db`
+    CREATE TABLE IF NOT EXISTS user_notion (
+      user_id                BIGINT PRIMARY KEY,
+      workspace_id           TEXT,
+      workspace_name         TEXT,
+      bot_id                 TEXT,
+      token_enc              TEXT NOT NULL,
+      content_data_source_id TEXT,
+      brands_data_source_id  TEXT,
+      connected_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+
+  console.log("[Postgres] Bảng users + user_facebook + user_notion sẵn sàng.");
 }
 
 module.exports = { getSql, isEnabled, initAccountSchema };

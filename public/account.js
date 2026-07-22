@@ -42,7 +42,82 @@
     signedIn.classList.remove("hidden");
     signedInName.textContent = user.name ? `${user.name} · ${user.email}` : user.email;
     loadFacebookStatus();
+    loadNotionStatus();
   }
+
+  async function loadNotionStatus() {
+    const statusEl = document.querySelector("#notion-status");
+    const connectEl = document.querySelector("#notion-connect");
+    const disconnectEl = document.querySelector("#notion-disconnect");
+    const picker = document.querySelector("#notion-db-picker");
+    try {
+      const res = await fetch("/account/notion/status");
+      const data = await res.json();
+      const status = (data && data.status) || {};
+      if (status.connected) {
+        statusEl.textContent = status.dbSelected
+          ? `Đã kết nối: ${status.workspaceName || "workspace"} · đã chọn database.`
+          : `Đã kết nối: ${status.workspaceName || "workspace"} · chưa chọn database.`;
+        connectEl.textContent = "Kết nối lại";
+        disconnectEl.classList.remove("hidden");
+        picker.classList.remove("hidden");
+        loadNotionDatabases(status);
+      } else {
+        statusEl.textContent = "Chưa kết nối Notion.";
+        connectEl.textContent = "Kết nối Notion";
+        disconnectEl.classList.add("hidden");
+        picker.classList.add("hidden");
+      }
+    } catch {
+      statusEl.textContent = "Không kiểm tra được trạng thái Notion.";
+    }
+  }
+
+  async function loadNotionDatabases(status) {
+    const contentSel = document.querySelector("#notion-content-db");
+    const brandsSel = document.querySelector("#notion-brands-db");
+    try {
+      const res = await fetch("/account/notion/databases");
+      const data = await res.json();
+      const dbs = (data && data.databases) || [];
+      const options = ['<option value="">-- Chọn --</option>']
+        .concat(dbs.map((d) => `<option value="${d.id}">${d.title}</option>`))
+        .join("");
+      contentSel.innerHTML = options;
+      brandsSel.innerHTML = options;
+      if (status.contentDataSourceId) contentSel.value = status.contentDataSourceId;
+      if (status.brandsDataSourceId) brandsSel.value = status.brandsDataSourceId;
+    } catch {
+      /* im lặng */
+    }
+  }
+
+  document.querySelector("#notion-save-db").addEventListener("click", async () => {
+    const statusEl = document.querySelector("#notion-db-status");
+    statusEl.textContent = "Đang lưu...";
+    try {
+      const res = await fetch("/account/notion/databases", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contentDataSourceId: document.querySelector("#notion-content-db").value,
+          brandsDataSourceId: document.querySelector("#notion-brands-db").value
+        })
+      });
+      const data = await res.json();
+      statusEl.textContent = data.message || (data.success ? "Đã lưu." : "Lỗi.");
+    } catch (error) {
+      statusEl.textContent = error.message;
+    }
+  });
+
+  document.querySelector("#notion-disconnect").addEventListener("click", async () => {
+    try {
+      await fetch("/account/notion/disconnect", { method: "POST" });
+    } finally {
+      loadNotionStatus();
+    }
+  });
 
   async function loadFacebookStatus() {
     const statusEl = document.querySelector("#fb-status");
