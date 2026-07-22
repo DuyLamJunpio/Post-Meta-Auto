@@ -1,6 +1,7 @@
 const express = require("express");
 
 const authService = require("../services/auth.service");
+const userFacebookService = require("../services/user-facebook.service");
 
 // Hệ tài khoản người dùng (đăng ký/đăng nhập bằng email + mật khẩu).
 // CÔNG KHAI — đặt trước requireAuth. Session lưu userId cho các pha sau (kết nối FB/Notion per-user).
@@ -43,6 +44,31 @@ router.get("/me", async (req, res, next) => {
     }
     const user = await authService.getUserById(req.session.userId);
     res.json({ success: true, user });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Pha 2: trạng thái kết nối Facebook của tài khoản đang đăng nhập.
+router.get("/facebook/status", async (req, res, next) => {
+  try {
+    if (!req.session.userId) {
+      return res.json({ success: true, status: { connected: false, needLogin: true } });
+    }
+    const status = await userFacebookService.getStatus(req.session.userId);
+    res.json({ success: true, status });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/facebook/disconnect", async (req, res, next) => {
+  try {
+    if (req.session.userId) {
+      await userFacebookService.disconnect(req.session.userId);
+    }
+    delete req.session.facebookUser;
+    res.json({ success: true, message: "Đã ngắt kết nối Facebook." });
   } catch (error) {
     next(error);
   }

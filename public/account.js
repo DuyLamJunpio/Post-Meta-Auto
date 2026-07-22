@@ -41,7 +41,38 @@
     hideAlert();
     signedIn.classList.remove("hidden");
     signedInName.textContent = user.name ? `${user.name} · ${user.email}` : user.email;
+    loadFacebookStatus();
   }
+
+  async function loadFacebookStatus() {
+    const statusEl = document.querySelector("#fb-status");
+    const connectEl = document.querySelector("#fb-connect");
+    const disconnectEl = document.querySelector("#fb-disconnect");
+    try {
+      const res = await fetch("/account/facebook/status");
+      const data = await res.json();
+      const status = (data && data.status) || {};
+      if (status.connected) {
+        statusEl.textContent = `Đã kết nối: ${status.fbUserName || status.fbUserId || "Facebook"} · ${status.pageCount || 0} Page.`;
+        connectEl.textContent = "Kết nối lại";
+        disconnectEl.classList.remove("hidden");
+      } else {
+        statusEl.textContent = "Chưa kết nối Facebook.";
+        connectEl.textContent = "Kết nối Facebook";
+        disconnectEl.classList.add("hidden");
+      }
+    } catch {
+      statusEl.textContent = "Không kiểm tra được trạng thái Facebook.";
+    }
+  }
+
+  document.querySelector("#fb-disconnect").addEventListener("click", async () => {
+    try {
+      await fetch("/account/facebook/disconnect", { method: "POST" });
+    } finally {
+      loadFacebookStatus();
+    }
+  });
 
   async function postJson(url, body) {
     const res = await fetch(url, {

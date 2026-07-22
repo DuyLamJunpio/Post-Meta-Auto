@@ -62,7 +62,17 @@
           <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-2xl">✓</div>
           <h2 class="text-lg font-bold text-slate-900">Đã đăng nhập</h2>
           <p id="signed-in-name" class="mt-1 text-sm text-slate-500"></p>
-          <p class="mt-3 text-xs text-slate-400">Bước tiếp theo (đang phát triển): kết nối Facebook &amp; Notion của bạn.</p>
+
+          <div class="mt-5 rounded-xl border border-slate-200 p-4 text-left">
+            <p class="text-sm font-semibold text-slate-800">Kết nối Facebook</p>
+            <p id="fb-status" class="mt-1 text-xs text-slate-500">Đang kiểm tra...</p>
+            <div class="mt-3 flex gap-2">
+              <a id="fb-connect" href="/auth/facebook" class="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600">Kết nối Facebook</a>
+              <button id="fb-disconnect" type="button" class="hidden rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">Ngắt kết nối</button>
+            </div>
+          </div>
+
+          <p class="mt-4 text-xs text-slate-400">Kết nối Notion (OAuth) sẽ có ở bước sau.</p>
           <button id="logout-button" type="button" class="mt-4 rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">Đăng xuất</button>
         </div>
       </div>

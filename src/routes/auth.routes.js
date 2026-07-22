@@ -7,6 +7,7 @@ const googleDriveService = require("../services/google-drive.service");
 const gbpService = require("../services/gbp.service");
 const instagramService = require("../services/instagram.service");
 const tiktokService = require("../services/tiktok.service");
+const userFacebookService = require("../services/user-facebook.service");
 
 const router = express.Router();
 
@@ -62,6 +63,16 @@ router.get("/facebook/callback", async (req, res, next) => {
       userAccessToken,
       pages
     };
+
+    // Pha 2: nếu đang đăng nhập tài khoản (userId) -> lưu kết nối FB theo user vào Postgres.
+    // Additive: luồng admin (không có userId) không đổi.
+    if (req.session.userId) {
+      try {
+        await userFacebookService.saveConnection(req.session.userId, req.session.facebookUser);
+      } catch (persistError) {
+        console.error("[User FB] Lưu kết nối theo tài khoản thất bại:", persistError.message);
+      }
+    }
 
     req.session.save((saveError) => {
       if (saveError) {

@@ -46,7 +46,18 @@ async function initAccountSchema() {
     )
   `;
 
-  console.log("[Postgres] Bảng users sẵn sàng.");
+  // Kết nối Facebook theo từng tài khoản (token mã hóa). 1 user = 1 kết nối FB.
+  await db`
+    CREATE TABLE IF NOT EXISTS user_facebook (
+      user_id      BIGINT PRIMARY KEY,
+      fb_user_id   TEXT,
+      fb_user_name TEXT,
+      data_enc     TEXT NOT NULL,
+      connected_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+
+  console.log("[Postgres] Bảng users + user_facebook sẵn sàng.");
 }
 
 module.exports = { getSql, isEnabled, initAccountSchema };
