@@ -100,6 +100,15 @@ function getStoredSessions() {
   });
 }
 
+// Rút gọn caption để cảnh báo Telegram hiển thị rõ đó là bài nào.
+function captionSnippet(caption) {
+  const text = String(caption || "").trim().replace(/\s+/g, " ");
+  if (!text) {
+    return null;
+  }
+  return `Nội dung: ${text.slice(0, 140)}${text.length > 140 ? "…" : ""}`;
+}
+
 // Ghi audit + gửi cảnh báo cho kết quả một tick tự đăng (không để lỗi cảnh báo làm hỏng vòng lặp).
 async function handlePublishAlerts(result, reconcileResult) {
   try {
@@ -124,7 +133,12 @@ async function handlePublishAlerts(result, reconcileResult) {
         await notifier.notify({
           level: "info",
           title: "✅ Đã đăng bài",
-          lines: [`Bài: ${item.title || "(không tên)"}`, item.permalinkUrl || `Post ID: ${item.postId || "?"}`]
+          lines: [
+            `Bài: ${item.title || "(không tên)"}`,
+            captionSnippet(item.caption),
+            item.permalinkUrl || (item.postId ? `Post ID: ${item.postId}` : null)
+          ],
+          linkPreview: Boolean(item.permalinkUrl)
         });
       } else if (item.posted) {
         publishAuditService.record({
@@ -138,7 +152,13 @@ async function handlePublishAlerts(result, reconcileResult) {
         await notifier.notify({
           level: "important",
           title: "⚠️ Đã đăng nhưng KHÔNG cập nhật được Notion",
-          lines: [`Bài: ${item.title || "(không tên)"}`, item.permalinkUrl || `Post ID: ${item.postId || "?"}`, "Kiểm tra để tránh xử lý trùng."]
+          lines: [
+            `Bài: ${item.title || "(không tên)"}`,
+            captionSnippet(item.caption),
+            item.permalinkUrl || (item.postId ? `Post ID: ${item.postId}` : null),
+            "Kiểm tra để tránh xử lý trùng."
+          ],
+          linkPreview: Boolean(item.permalinkUrl)
         });
       } else if (!item.skipped) {
         publishAuditService.record({
@@ -150,7 +170,11 @@ async function handlePublishAlerts(result, reconcileResult) {
         await notifier.notify({
           level: "important",
           title: "❌ Đăng bài THẤT BẠI",
-          lines: [`Bài: ${item.title || "(không tên)"}`, `Lý do: ${item.message || "Không rõ"}`]
+          lines: [
+            `Bài: ${item.title || "(không tên)"}`,
+            captionSnippet(item.caption),
+            `Lý do: ${item.message || "Không rõ"}`
+          ]
         });
       }
     }

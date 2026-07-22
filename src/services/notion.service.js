@@ -2018,6 +2018,7 @@ async function publishResolvedTask(resolved, options = {}) {
       skipped: false,
       taskId: task.id,
       title: task.title,
+      caption: task.caption,
       message,
       channelResults
     };
@@ -2039,6 +2040,7 @@ async function publishResolvedTask(resolved, options = {}) {
       success: true,
       taskId: task.id,
       title: task.title,
+      caption: task.caption,
       pageId: page ? page.id : null,
       pageName: page ? page.name : null,
       postId: primaryResult ? primaryResult.postId : null,
@@ -2054,6 +2056,7 @@ async function publishResolvedTask(resolved, options = {}) {
       skipped: false,
       taskId: task.id,
       title: task.title,
+      caption: task.caption,
       postId: primaryResult ? primaryResult.postId : null,
       permalinkUrl: primaryResult
         ? (primaryResult.permalinkUrl || (facebookResult ? `https://www.facebook.com/${facebookResult.postId}` : ""))

@@ -68,6 +68,13 @@ router.post("/posts/facebook/retract", async (req, res, next) => {
       return res.status(404).json({ success: false, message: "Tài khoản đang đăng nhập không quản lý Page này." });
     }
 
+    // Lấy nội dung + ảnh TRƯỚC khi xóa để cảnh báo hiển thị rõ đó là bài nào.
+    const detail = await facebookService.getPagePostDetail(postId, page.pageAccessToken);
+    const content = detail && detail.message ? detail.message.trim() : "";
+    const headline = content
+      ? content.split("\n").filter(Boolean)[0].slice(0, 80)
+      : "(bài không có nội dung văn bản)";
+
     const result = await facebookService.deletePagePost(postId, page.pageAccessToken);
 
     publishAuditService.record({
@@ -76,13 +83,20 @@ router.post("/posts/facebook/retract", async (req, res, next) => {
       accountId: pageId,
       accountName: page.name,
       postId,
+      title: headline,
       message: "Thu hồi bài thủ công."
     });
 
     await notifier.notify({
       level: "important",
       title: "🗑️ Đã thu hồi bài",
-      lines: [`Page: ${page.name}`, `Post ID: ${postId}`]
+      lines: [
+        `Page: ${page.name}`,
+        `Nội dung: ${headline}`,
+        content && content.length > 80 ? `${content.slice(0, 300)}${content.length > 300 ? "…" : ""}` : null,
+        `Post ID: ${postId}`
+      ],
+      imageUrl: detail && detail.fullPicture ? detail.fullPicture : null
     });
 
     res.json({ success: true, message: "Đã thu hồi bài đăng.", result });
