@@ -18,6 +18,7 @@
     "express": "^5.2.1",
     "express-session": "^1.19.0",
     "form-data": "^4.0.5",
+    "postgres": "^3.4.9",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

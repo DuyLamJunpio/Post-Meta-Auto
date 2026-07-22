@@ -17,6 +17,8 @@ const gbpRoutes = require("./src/routes/gbp.routes");
 const tiktokRoutes = require("./src/routes/tiktok.routes");
 const autoPublishRoutes = require("./src/routes/auto-publish.routes");
 const leadRoutes = require("./src/routes/lead.routes");
+const accountRoutes = require("./src/routes/account.routes");
+const { initAccountSchema } = require("./src/db/postgres");
 const mediaRoutes = require("./src/routes/media.routes");
 const googleDriveService = require("./src/services/google-drive.service");
 const instagramService = require("./src/services/instagram.service");
@@ -31,6 +33,11 @@ const publishAuditService = require("./src/services/publish-audit.service");
 const app = express();
 
 initDatabase();
+
+// Khởi tạo bảng tài khoản trên Postgres (Supabase) — không chặn app nếu chưa cấu hình DATABASE_URL.
+initAccountSchema().catch((error) => {
+  console.error("[Postgres] Khởi tạo bảng tài khoản thất bại:", error.message);
+});
 
 // Session lưu bền trong SQLite (khởi tạo sau initDatabase để bảng sessions đã có).
 const sessionStore = new SqliteSessionStore();
@@ -75,6 +82,9 @@ app.get("/api/health", (req, res) => {
 });
 
 app.use("/auth", authRoutes);
+
+// Hệ tài khoản người dùng: CÔNG KHAI -> đặt TRƯỚC requireAuth.
+app.use("/account", accountRoutes);
 
 // Thu lead khách hàng: CÔNG KHAI (khách không có tài khoản admin) -> đặt TRƯỚC requireAuth.
 app.use("/lead", leadRoutes.publicRouter);

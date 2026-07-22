@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Đăng nhập / Đăng ký</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/shared/tw-config.js"></script>
+  </head>
+  <body class="min-h-screen bg-slate-100 font-sans antialiased">
+    <div class="flex min-h-screen items-center justify-center p-4">
+      <div class="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+        <div class="mb-6 text-center">
+          <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-brand-500 text-xl font-bold text-white">✦</div>
+          <h1 class="text-xl font-bold text-slate-900">Tài khoản</h1>
+          <p class="mt-1 text-sm text-slate-500">Đăng ký hoặc đăng nhập để kết nối Facebook & Notion của bạn.</p>
+        </div>
+
+        <div class="mb-5 grid grid-cols-2 rounded-xl bg-slate-100 p-1 text-sm font-medium">
+          <button id="tab-login" type="button" class="rounded-lg py-2 text-slate-600">Đăng nhập</button>
+          <button id="tab-register" type="button" class="rounded-lg py-2 text-slate-600">Đăng ký</button>
+        </div>
+
+        <p id="alert" class="mb-4 hidden rounded-lg px-3 py-2 text-sm" aria-live="polite"></p>
+
+        <!-- Đăng nhập -->
+        <form id="login-form" class="space-y-4">
+          <label class="block">
+            <span class="text-sm font-medium text-slate-700">Email</span>
+            <input id="login-email" type="email" required class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100" />
+          </label>
+          <label class="block">
+            <span class="text-sm font-medium text-slate-700">Mật khẩu</span>
+            <input id="login-password" type="password" required class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100" />
+          </label>
+          <button type="submit" class="w-full rounded-xl bg-brand-500 px-4 py-3 text-sm font-semibold text-white hover:bg-brand-600 disabled:opacity-50">Đăng nhập</button>
+        </form>
+
+        <!-- Đăng ký -->
+        <form id="register-form" class="hidden space-y-4">
+          <label class="block">
+            <span class="text-sm font-medium text-slate-700">Họ và tên</span>
+            <input id="reg-name" type="text" class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100" />
+          </label>
+          <label class="block">
+            <span class="text-sm font-medium text-slate-700">Email <span class="text-rose-500">*</span></span>
+            <input id="reg-email" type="email" required class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100" />
+          </label>
+          <label class="block">
+            <span class="text-sm font-medium text-slate-700">Số điện thoại</span>
+            <input id="reg-phone" type="tel" class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100" />
+          </label>
+          <label class="block">
+            <span class="text-sm font-medium text-slate-700">Mật khẩu <span class="text-rose-500">*</span></span>
+            <input id="reg-password" type="password" required minlength="8" placeholder="Tối thiểu 8 ký tự" class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100" />
+          </label>
+          <button type="submit" class="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">Tạo tài khoản</button>
+        </form>
+
+        <!-- Đã đăng nhập -->
+        <div id="signed-in" class="hidden text-center">
+          <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-2xl">✓</div>
+          <h2 class="text-lg font-bold text-slate-900">Đã đăng nhập</h2>
+          <p id="signed-in-name" class="mt-1 text-sm text-slate-500"></p>
+          <p class="mt-3 text-xs text-slate-400">Bước tiếp theo (đang phát triển): kết nối Facebook &amp; Notion của bạn.</p>
+          <button id="logout-button" type="button" class="mt-4 rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">Đăng xuất</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="/account.js"></script>
+  </body>
+</html>
