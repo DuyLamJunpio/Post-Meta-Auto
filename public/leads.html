@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Khách hàng (Lead) — Tự động đăng bài</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/shared/tw-config.js"></script>
+  </head>
+  <body class="min-h-screen bg-slate-50 text-slate-800 font-sans antialiased">
+    <div class="flex min-h-screen">
+      <div id="sidebar-backdrop" class="fixed inset-0 z-30 bg-slate-900/40 hidden lg:hidden"></div>
+      <aside
+        id="sidebar-mount"
+        class="fixed inset-y-0 left-0 z-40 w-64 -translate-x-full transition-transform duration-200 border-r border-slate-200 bg-white lg:static lg:translate-x-0 lg:shrink-0"
+        aria-label="Điều hướng"
+      ></aside>
+
+      <div class="flex min-w-0 flex-1 flex-col">
+        <header class="sticky top-0 z-20 flex items-center gap-3 border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur lg:px-8">
+          <button data-sidebar-toggle type="button" class="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-100 lg:hidden" aria-label="Mở menu">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5" /></svg>
+          </button>
+          <div class="min-w-0 flex-1">
+            <h1 class="text-lg font-bold text-slate-900">Khách hàng (Lead)</h1>
+            <p id="leads-status" class="text-xs text-slate-500" aria-live="polite">Đang tải...</p>
+          </div>
+          <button id="refresh-button" type="button" class="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">Làm mới</button>
+        </header>
+
+        <main class="mx-auto w-full max-w-7xl flex-1 space-y-4 p-4 lg:p-8">
+          <div class="rounded-2xl border border-brand-100 bg-brand-50 px-4 py-3 text-sm text-brand-700">
+            Link đăng ký cho khách: <a href="/lead.html" target="_blank" rel="noreferrer" class="font-semibold underline">/lead.html</a> — chia sẻ link này để khách tự đăng ký (có đồng ý). Lead mới cũng được gửi về Telegram.
+          </div>
+
+          <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div class="overflow-x-auto">
+              <table class="min-w-full">
+                <thead class="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th class="px-4 py-3">Thời gian</th>
+                    <th class="px-4 py-3">Tên</th>
+                    <th class="px-4 py-3">SĐT</th>
+                    <th class="px-4 py-3">Email</th>
+                    <th class="px-4 py-3">Nhu cầu</th>
+                    <th class="px-4 py-3">Facebook ID</th>
+                    <th class="px-4 py-3">Đồng ý</th>
+                  </tr>
+                </thead>
+                <tbody id="leads-list" class="divide-y divide-slate-100 text-sm"></tbody>
+              </table>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <script type="module" src="/leads.js"></script>
+  </body>
+</html>

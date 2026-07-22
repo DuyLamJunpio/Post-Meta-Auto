@@ -16,6 +16,7 @@ const instagramRoutes = require("./src/routes/instagram.routes");
 const gbpRoutes = require("./src/routes/gbp.routes");
 const tiktokRoutes = require("./src/routes/tiktok.routes");
 const autoPublishRoutes = require("./src/routes/auto-publish.routes");
+const leadRoutes = require("./src/routes/lead.routes");
 const mediaRoutes = require("./src/routes/media.routes");
 const googleDriveService = require("./src/services/google-drive.service");
 const instagramService = require("./src/services/instagram.service");
@@ -74,7 +75,12 @@ app.get("/api/health", (req, res) => {
 });
 
 app.use("/auth", authRoutes);
+
+// Thu lead khách hàng: CÔNG KHAI (khách không có tài khoản admin) -> đặt TRƯỚC requireAuth.
+app.use("/lead", leadRoutes.publicRouter);
+
 app.use("/api", requireAuth);
+app.use("/api", leadRoutes.adminRouter);
 app.use("/api", userRoutes);
 app.use("/api", pageRoutes);
 app.use("/api", postRoutes);
