@@ -2370,6 +2370,17 @@ async function listBrandChannelToggles() {
     .filter((brand) => brand.channels.length > 0);
 }
 
+// Danh sách brand rút gọn (id/code/name) để import Excel map Brand Code -> Primary Brand.
+async function listBrands() {
+  const brandsById = await getBrandsById();
+  return [...brandsById.values()].map((brand) => ({
+    id: brand.id,
+    code: brand.code,
+    name: brand.name,
+    active: brand.active
+  }));
+}
+
 function setBrandChannelToggle(brandId, channel, enabled) {
   if (!brandId || !channel) {
     throw createPublicError(400, "Thiếu brandId hoặc channel.");
@@ -2386,6 +2397,7 @@ module.exports = {
   syncInstagramAccountIds,
   listBrandChannelToggles,
   setBrandChannelToggle,
+  listBrands,
   listTasksForSession,
   markTaskManualPostSuccess,
   prepareFailedTasksForRetry,

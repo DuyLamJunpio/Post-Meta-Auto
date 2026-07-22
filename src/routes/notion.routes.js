@@ -1,6 +1,7 @@
 const express = require("express");
 
 const notionService = require("../services/notion.service");
+const notionImportService = require("../services/notion-import.service");
 const googleDriveService = require("../services/google-drive.service");
 const instagramService = require("../services/instagram.service");
 const gbpService = require("../services/gbp.service");
@@ -34,6 +35,40 @@ router.post("/notion/sync-instagram-ids", async (req, res, next) => {
     res.json({
       success: true,
       message: `Đã cập nhật Instagram Account ID cho ${result.updatedCount} brand.`,
+      ...result
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Import Excel — bước 1: nhận file nhị phân (octet-stream), đọc + kiểm tra, KHÔNG ghi Notion.
+router.post(
+  "/notion/import/preview",
+  express.raw({ type: () => true, limit: "12mb" }),
+  async (req, res, next) => {
+    try {
+      if (!req.body || !req.body.length) {
+        return res.status(400).json({ success: false, message: "Chưa nhận được file Excel." });
+      }
+
+      const preview = await notionImportService.previewImport(req.body);
+      res.json({ success: true, ...preview });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// Import Excel — bước 2: tạo task Notion cho các dòng đã chọn (đã kiểm tra lại phía server).
+router.post("/notion/import/create", async (req, res, next) => {
+  try {
+    const rows = req.body && Array.isArray(req.body.rows) ? req.body.rows : [];
+    const result = await notionImportService.createTasks(rows);
+
+    res.json({
+      success: true,
+      message: `Đã tạo ${result.successCount}/${result.total} task, lỗi ${result.failureCount}.`,
       ...result
     });
   } catch (error) {
