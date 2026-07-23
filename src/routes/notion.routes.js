@@ -78,7 +78,7 @@ router.post("/notion/import/create", async (req, res, next) => {
 
 router.get("/notion/channel-toggles", async (req, res, next) => {
   try {
-    const brands = await notionService.listBrandChannelToggles();
+    const brands = await notionService.listBrandChannelToggles(req.session.facebookUser.pages);
     res.json({ success: true, brands });
   } catch (error) {
     next(error);

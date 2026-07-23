@@ -2395,10 +2395,18 @@ async function publishSingleTask(taskId, sessionPages, options = {}) {
 }
 
 // Danh sách brand × kênh kèm trạng thái bật/tắt tự đăng (cho UI điều khiển).
-async function listBrandChannelToggles(options = {}) {
+// CHỈ hiện brand mà tài khoản FB đang đăng nhập THỰC SỰ quản lý Page (khớp facebookPageId với
+// Page hiển thị của phiên) -> đổi tài khoản FB thì danh sách đổi theo, không lẫn brand của FB khác.
+async function listBrandChannelToggles(sessionPages = [], options = {}) {
   const brandsById = await getBrandsById(resolveNotionContext(options));
+  const managedPageIds = new Set(
+    pageVisibilityService
+      .getVisiblePages(Array.isArray(sessionPages) ? sessionPages : [])
+      .map((page) => String(page.id))
+  );
 
   return [...brandsById.values()]
+    .filter((brand) => brand.facebookPageId && managedPageIds.has(String(brand.facebookPageId)))
     .map((brand) => {
       const accounts = brand.channelAccounts || {};
       const channels = Object.keys(CHANNEL_BRAND_ACCOUNT_FIELD)
