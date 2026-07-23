@@ -8,13 +8,14 @@ function record(event) {
     const db = getDb();
     db.prepare(
       `INSERT INTO publish_audit
-         (event, notion_task_id, channel, account_id, account_name, post_id, permalink_url, title, message, created_at)
+         (event, notion_task_id, channel, user_id, account_id, account_name, post_id, permalink_url, title, message, created_at)
        VALUES
-         (@event, @notion_task_id, @channel, @account_id, @account_name, @post_id, @permalink_url, @title, @message, @created_at)`
+         (@event, @notion_task_id, @channel, @user_id, @account_id, @account_name, @post_id, @permalink_url, @title, @message, @created_at)`
     ).run({
       event: String(event.event || "unknown"),
       notion_task_id: event.notionTaskId || null,
       channel: event.channel || null,
+      user_id: event.userId != null ? String(event.userId) : null,
       account_id: event.accountId || null,
       account_name: event.accountName || null,
       post_id: event.postId || null,

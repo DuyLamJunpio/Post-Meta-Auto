@@ -14,9 +14,10 @@ function createPublicError(status, message, details) {
   return error;
 }
 
-// options: { channelKey, task, brand, account, contentType, mediaItems, publicMediaUrls, driveAuth }
+// options: { channelKey, task, brand, account, contentType, mediaItems, publicMediaUrls, driveAuth, userId }
+// userId: tenant sở hữu job (Pha 4c) — null cho luồng admin/.env.
 async function publishTaskToChannel(options) {
-  const { channelKey, task, brand, account, contentType, mediaItems, publicMediaUrls, driveAuth } = options;
+  const { channelKey, task, brand, account, contentType, mediaItems, publicMediaUrls, driveAuth, userId } = options;
   const adapter = channels.getAdapter(channelKey);
 
   if (!adapter) {
@@ -29,7 +30,7 @@ async function publishTaskToChannel(options) {
   // publicMediaUrls: URL proxy công khai (đã có đuôi file) cho kênh PULL; adapter tự ưu tiên dùng.
   const { content } = adapter.normalizeContent({ task, brand, contentType, publicMediaUrls });
 
-  jobsStore.markPublishing(task.id, channelKey, account && account.id);
+  jobsStore.markPublishing(task.id, channelKey, account && account.id, userId);
 
   try {
     const result = await adapter.publish({ account, content, mediaItems, driveAuth });
@@ -44,7 +45,8 @@ async function publishTaskToChannel(options) {
     jobsStore.markPublished(task.id, channelKey, {
       accountId: account && account.id,
       postId: result.postId,
-      permalinkUrl: result.permalinkUrl
+      permalinkUrl: result.permalinkUrl,
+      userId
     });
 
     return {
@@ -56,7 +58,7 @@ async function publishTaskToChannel(options) {
     };
   } catch (error) {
     const message = error.publicMessage || error.message || "Đăng bài thất bại.";
-    jobsStore.markFailed(task.id, channelKey, message, { accountId: account && account.id });
+    jobsStore.markFailed(task.id, channelKey, message, { accountId: account && account.id, userId });
     throw error;
   }
 }

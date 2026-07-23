@@ -26,6 +26,7 @@ const gbpService = require("./src/services/gbp.service");
 const tiktokService = require("./src/services/tiktok.service");
 const mediaProxyService = require("./src/services/media-proxy.service");
 const notionService = require("./src/services/notion.service");
+const tenantRunner = require("./src/services/tenant-runner.service");
 const pageVisibilityService = require("./src/services/page-visibility.service");
 const notifier = require("./src/services/notifier");
 const publishAuditService = require("./src/services/publish-audit.service");
@@ -126,10 +127,12 @@ function captionSnippet(caption) {
 }
 
 // Ghi audit + gửi cảnh báo cho kết quả một tick tự đăng (không để lỗi cảnh báo làm hỏng vòng lặp).
-async function handlePublishAlerts(result, reconcileResult) {
+// userId (Pha 4c): tenant sở hữu chu kỳ này — null cho luồng admin/.env.
+async function handlePublishAlerts(result, reconcileResult, userId = null) {
+  const recordAudit = (event) => publishAuditService.record({ ...event, userId });
   try {
     if (result.anomaly) {
-      publishAuditService.record({ event: "paused", message: result.anomalyReason });
+      recordAudit({ event: "paused", message: result.anomalyReason });
       await notifier.notify({
         level: "important",
         title: "🛑 Tự đăng ĐÃ TẠM DỪNG (bất thường)",
@@ -139,7 +142,7 @@ async function handlePublishAlerts(result, reconcileResult) {
 
     for (const item of result.results || []) {
       if (item.success) {
-        publishAuditService.record({
+        recordAudit({
           event: "published",
           notionTaskId: item.taskId,
           postId: item.postId,
@@ -157,7 +160,7 @@ async function handlePublishAlerts(result, reconcileResult) {
           linkPreview: Boolean(item.permalinkUrl)
         });
       } else if (item.posted) {
-        publishAuditService.record({
+        recordAudit({
           event: "published",
           notionTaskId: item.taskId,
           postId: item.postId,
@@ -177,7 +180,7 @@ async function handlePublishAlerts(result, reconcileResult) {
           linkPreview: Boolean(item.permalinkUrl)
         });
       } else if (!item.skipped) {
-        publishAuditService.record({
+        recordAudit({
           event: "failed",
           notionTaskId: item.taskId,
           title: item.title,
@@ -197,7 +200,7 @@ async function handlePublishAlerts(result, reconcileResult) {
 
     for (const item of (reconcileResult && reconcileResult.results) || []) {
       if (item.outcome === "failed") {
-        publishAuditService.record({
+        recordAudit({
           event: "failed",
           notionTaskId: item.taskId,
           title: item.title,
@@ -215,6 +218,106 @@ async function handlePublishAlerts(result, reconcileResult) {
   }
 }
 
+// Một "chu kỳ đăng" cho MỘT context (1 session admin hoặc 1 tenant): hòa giải kẹt -> lên lịch -> đăng.
+// options mang notionContext (tenant) hoặc bỏ trống (admin -> notion.service dùng .env mặc định),
+// kèm driveAuth/instagramAuth/gbpAuth/tiktokAuth nếu có.
+async function runPublishCycle(pages, options, label) {
+  // userId (Pha 4c): tenant sở hữu chu kỳ — lấy từ notionContext; null cho luồng admin/.env.
+  const userId = (options.notionContext && options.notionContext.userId) || null;
+
+  // Lớp 3: hòa giải task kẹt ở "Đang đăng" trước khi lên lịch/đăng (chống kẹt & đăng trùng).
+  const reconcileResult = await notionService.reconcileStuckPublishingTasks(pages, options);
+
+  if (reconcileResult.stuckCount > 0) {
+    console.warn("[Notion Auto Publish] Hòa giải task kẹt:", {
+      context: label,
+      stuckCount: reconcileResult.stuckCount,
+      reconciledPublished: reconcileResult.reconciledPublished,
+      reconciledFailed: reconcileResult.reconciledFailed
+    });
+  }
+
+  const scheduleResult = await notionService.scheduleReadyTasks(pages, options);
+  const result = await notionService.publishDueTasks(pages, options);
+
+  if (result.anomaly) {
+    console.error("[Notion Auto Publish] ĐÃ TỰ PAUSE vì bất thường:", result.anomalyReason);
+  } else if (result.paused) {
+    console.warn("[Notion Auto Publish] Đang tạm dừng (kill switch/pause) — bỏ qua đăng.");
+  }
+
+  await handlePublishAlerts(result, reconcileResult, userId);
+
+  if (
+    scheduleResult.attemptedCount > 0 ||
+    scheduleResult.failureCount > 0 ||
+    result.attemptedCount > 0 ||
+    result.failureCount > 0 ||
+    result.paused
+  ) {
+    console.log("[Notion Auto Publish]", {
+      context: label,
+      scheduledCount: scheduleResult.successCount,
+      attemptedCount: result.attemptedCount,
+      successCount: result.successCount,
+      failureCount: result.failureCount,
+      publishedCount: result.publishedCount || 0,
+      paused: Boolean(result.paused)
+    });
+  }
+}
+
+// Loop CŨ (admin/single-tenant): duyệt session, dùng Notion .env chung.
+// Chốt chặn: session của user ĐÃ kết nối Notion riêng thì bỏ qua (loop per-user xử lý -> chống đăng trùng).
+async function runSessionAutoPublish() {
+  const sessions = await getStoredSessions();
+  const notionUserIds = new Set(await tenantRunner.listNotionConnectedUserIds());
+  const facebookSessions = sessions.filter(
+    (storedSession) =>
+      storedSession.facebookUser &&
+      Array.isArray(storedSession.facebookUser.pages) &&
+      storedSession.facebookUser.pages.length > 0
+  );
+
+  for (const storedSession of facebookSessions) {
+    if (storedSession.userId && notionUserIds.has(String(storedSession.userId))) {
+      continue;
+    }
+
+    const visiblePages = pageVisibilityService.getVisiblePages(storedSession.facebookUser.pages);
+    if (visiblePages.length === 0) {
+      continue;
+    }
+
+    const options = {
+      driveAuth: googleDriveService.getSessionAuth(storedSession),
+      instagramAuth: instagramService.getSessionAuth(storedSession),
+      gbpAuth: gbpService.getSessionAuth(storedSession),
+      tiktokAuth: tiktokService.getSessionAuth(storedSession)
+    };
+
+    try {
+      await runPublishCycle(storedSession.facebookUser.pages, options, "session");
+    } catch (error) {
+      console.error("[Notion Auto Publish] Lỗi chu kỳ session:", error.publicMessage || error.message);
+    }
+  }
+}
+
+// Loop MỚI (per-user): mỗi tenant đăng bằng Notion + Facebook riêng. MVP chỉ FB + Notion
+// (KHÔNG truyền driveAuth/ig/gbp/tiktok — token per-user của các kênh này chưa lưu Postgres).
+async function runTenantAutoPublish() {
+  const tenants = await tenantRunner.listPublishableTenants();
+
+  for (const tenant of tenants) {
+    try {
+      await runPublishCycle(tenant.pages, { notionContext: tenant.notionContext }, `tenant:${tenant.userId}`);
+    } catch (error) {
+      console.error(`[Notion Auto Publish] Lỗi chu kỳ tenant ${tenant.userId}:`, error.publicMessage || error.message);
+    }
+  }
+}
+
 async function runNotionAutoPublish() {
   if (notionAutoPublishRunning) {
     return;
@@ -223,79 +326,8 @@ async function runNotionAutoPublish() {
   notionAutoPublishRunning = true;
 
   try {
-    const sessions = await getStoredSessions();
-    const facebookSessions = sessions.filter(
-      (storedSession) =>
-        storedSession.facebookUser &&
-        Array.isArray(storedSession.facebookUser.pages) &&
-        storedSession.facebookUser.pages.length > 0
-    );
-
-    for (const storedSession of facebookSessions) {
-      const driveAuth = googleDriveService.getSessionAuth(storedSession);
-      const instagramAuth = instagramService.getSessionAuth(storedSession);
-      const gbpAuth = gbpService.getSessionAuth(storedSession);
-      const tiktokAuth = tiktokService.getSessionAuth(storedSession);
-      const visiblePages = pageVisibilityService.getVisiblePages(storedSession.facebookUser.pages);
-
-      if (visiblePages.length === 0) {
-        continue;
-      }
-
-      // Lớp 3: hòa giải task kẹt ở "Đang đăng" trước khi lên lịch/đăng (chống kẹt & đăng trùng).
-      const reconcileResult = await notionService.reconcileStuckPublishingTasks(storedSession.facebookUser.pages, {
-        driveAuth,
-        instagramAuth,
-        gbpAuth,
-        tiktokAuth
-      });
-
-      if (reconcileResult.stuckCount > 0) {
-        console.warn("[Notion Auto Publish] Hòa giải task kẹt:", {
-          stuckCount: reconcileResult.stuckCount,
-          reconciledPublished: reconcileResult.reconciledPublished,
-          reconciledFailed: reconcileResult.reconciledFailed
-        });
-      }
-
-      const scheduleResult = await notionService.scheduleReadyTasks(storedSession.facebookUser.pages, {
-        driveAuth,
-        instagramAuth,
-        gbpAuth,
-        tiktokAuth
-      });
-      const result = await notionService.publishDueTasks(storedSession.facebookUser.pages, {
-        driveAuth,
-        instagramAuth,
-        gbpAuth,
-        tiktokAuth
-      });
-
-      if (result.anomaly) {
-        console.error("[Notion Auto Publish] ĐÃ TỰ PAUSE vì bất thường:", result.anomalyReason);
-      } else if (result.paused) {
-        console.warn("[Notion Auto Publish] Đang tạm dừng (kill switch/pause) — bỏ qua đăng.");
-      }
-
-      await handlePublishAlerts(result, reconcileResult);
-
-      if (
-        scheduleResult.attemptedCount > 0 ||
-        scheduleResult.failureCount > 0 ||
-        result.attemptedCount > 0 ||
-        result.failureCount > 0 ||
-        result.paused
-      ) {
-        console.log("[Notion Auto Publish]", {
-          scheduledCount: scheduleResult.successCount,
-          attemptedCount: result.attemptedCount,
-          successCount: result.successCount,
-          failureCount: result.failureCount,
-          publishedCount: result.publishedCount || 0,
-          paused: Boolean(result.paused)
-        });
-      }
-    }
+    await runSessionAutoPublish();
+    await runTenantAutoPublish();
   } catch (error) {
     console.error("[Notion Auto Publish]", error.publicMessage || error.message);
   } finally {

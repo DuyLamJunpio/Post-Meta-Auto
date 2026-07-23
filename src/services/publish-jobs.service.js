@@ -21,6 +21,7 @@ function mapRow(row) {
     notionTaskId: row.notion_task_id,
     channel: row.channel,
     status: row.status,
+    userId: row.user_id,
     accountId: row.account_id,
     expectedAccountId: row.expected_account_id,
     postId: row.post_id,
@@ -63,15 +64,16 @@ function upsertJob(notionTaskId, channel, patch = {}) {
   if (!existing) {
     db.prepare(
       `INSERT INTO publish_jobs
-         (notion_task_id, channel, status, account_id, expected_account_id, post_id, permalink_url,
+         (notion_task_id, channel, status, user_id, account_id, expected_account_id, post_id, permalink_url,
           retry_count, error_message, scheduled_at, published_at, created_at, updated_at)
        VALUES
-         (@notion_task_id, @channel, @status, @account_id, @expected_account_id, @post_id, @permalink_url,
+         (@notion_task_id, @channel, @status, @user_id, @account_id, @expected_account_id, @post_id, @permalink_url,
           @retry_count, @error_message, @scheduled_at, @published_at, @created_at, @updated_at)`
     ).run({
       notion_task_id: taskId,
       channel: channelKey,
       status: patch.status || STATUS.PENDING,
+      user_id: patch.userId != null ? String(patch.userId) : null,
       account_id: patch.accountId || null,
       expected_account_id: patch.expectedAccountId || null,
       post_id: patch.postId || null,
@@ -89,6 +91,8 @@ function upsertJob(notionTaskId, channel, patch = {}) {
 
   const next = {
     status: patch.status !== undefined ? patch.status : existing.status,
+    // Giữ nguyên user_id đã gắn; chỉ ghi đè khi patch cung cấp (tránh xóa owner ở lần update sau).
+    user_id: patch.userId !== undefined ? (patch.userId != null ? String(patch.userId) : null) : existing.userId,
     account_id: patch.accountId !== undefined ? patch.accountId : existing.accountId,
     expected_account_id:
       patch.expectedAccountId !== undefined ? patch.expectedAccountId : existing.expectedAccountId,
@@ -103,6 +107,7 @@ function upsertJob(notionTaskId, channel, patch = {}) {
   db.prepare(
     `UPDATE publish_jobs SET
        status = @status,
+       user_id = @user_id,
        account_id = @account_id,
        expected_account_id = @expected_account_id,
        post_id = @post_id,
@@ -124,32 +129,35 @@ function upsertJob(notionTaskId, channel, patch = {}) {
 }
 
 // Chốt "mục tiêu đăng dự kiến" lúc lên lịch (snapshot page id) để phát hiện đổi mapping.
-function recordExpectedAccount(notionTaskId, channel, expectedAccountId) {
+function recordExpectedAccount(notionTaskId, channel, expectedAccountId, userId) {
   return upsertJob(notionTaskId, channel, {
-    expectedAccountId: expectedAccountId || null
+    expectedAccountId: expectedAccountId || null,
+    userId
   });
 }
 
-function markPublishing(notionTaskId, channel, accountId) {
+function markPublishing(notionTaskId, channel, accountId, userId) {
   return upsertJob(notionTaskId, channel, {
     status: STATUS.PUBLISHING,
     accountId: accountId || null,
-    errorMessage: null
+    errorMessage: null,
+    userId
   });
 }
 
-function markPublished(notionTaskId, channel, { accountId, postId, permalinkUrl } = {}) {
+function markPublished(notionTaskId, channel, { accountId, postId, permalinkUrl, userId } = {}) {
   return upsertJob(notionTaskId, channel, {
     status: STATUS.PUBLISHED,
     accountId: accountId || null,
     postId: postId || null,
     permalinkUrl: permalinkUrl || null,
     errorMessage: null,
-    publishedAt: new Date().toISOString()
+    publishedAt: new Date().toISOString(),
+    userId
   });
 }
 
-function markFailed(notionTaskId, channel, errorMessage, { accountId } = {}) {
+function markFailed(notionTaskId, channel, errorMessage, { accountId, userId } = {}) {
   const existing = getJob(notionTaskId, channel);
   const retryCount = (existing ? existing.retryCount : 0) + 1;
 
@@ -157,7 +165,8 @@ function markFailed(notionTaskId, channel, errorMessage, { accountId } = {}) {
     status: STATUS.FAILED,
     accountId: accountId || (existing && existing.accountId) || null,
     retryCount,
-    errorMessage: errorMessage || "Không rõ lỗi."
+    errorMessage: errorMessage || "Không rõ lỗi.",
+    userId
   });
 }
 

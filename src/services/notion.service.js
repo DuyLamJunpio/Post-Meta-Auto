@@ -18,9 +18,30 @@ const {
   resolveChannelAccount
 } = require("../channels");
 
-const notion = new Client({
-  auth: config.notion.apiToken
+// Pha 4 (tenant-hóa): mỗi tenant đăng bằng Notion riêng. Thay vì 1 client singleton từ .env,
+// mọi hàm IO nhận một `notionContext = { client, contentDataSourceId, brandsDataSourceId }`.
+// Khi entry point không truyền notionContext (luồng admin cũ), tự dùng defaultNotionContext từ .env
+// -> hành vi single-tenant hiện tại KHÔNG đổi.
+function buildNotionContext({ token, contentDataSourceId, brandsDataSourceId, userId = null }) {
+  return {
+    client: new Client({ auth: token }),
+    contentDataSourceId,
+    brandsDataSourceId,
+    // userId = tenant sở hữu context (Pha 4c). null = luồng admin/.env (không gắn tenant).
+    userId: userId != null ? String(userId) : null
+  };
+}
+
+const defaultNotionContext = buildNotionContext({
+  token: config.notion.apiToken,
+  contentDataSourceId: config.notion.contentDataSourceId,
+  brandsDataSourceId: config.notion.brandsDataSourceId,
+  userId: null
 });
+
+function resolveNotionContext(options) {
+  return (options && options.notionContext) || defaultNotionContext;
+}
 
 // Tên cột theo kênh dùng prefix [FB]/[IG]/[GBP]/[TikTok]; cột chung không prefix.
 // ĐỔI Ở ĐÂY PHẢI ĐỔI ĐỒNG BỘ TÊN CỘT TRONG NOTION (scripts/migrate-notion-channel-columns.js).
@@ -648,13 +669,13 @@ function mapBrandPage(page) {
   return brand;
 }
 
-async function queryAllDataSource(dataSourceId, mapper, context) {
+async function queryAllDataSource(dataSourceId, mapper, context, notionContext) {
   const results = [];
   let startCursor;
 
   try {
     do {
-      const response = await notion.dataSources.query({
+      const response = await notionContext.client.dataSources.query({
         data_source_id: dataSourceId,
         page_size: 100,
         start_cursor: startCursor
@@ -670,20 +691,21 @@ async function queryAllDataSource(dataSourceId, mapper, context) {
   }
 }
 
-async function getContentTasks() {
-  return queryAllDataSource(config.notion.contentDataSourceId, mapContentPage, "query_content_tasks");
+async function getContentTasks(notionContext) {
+  return queryAllDataSource(notionContext.contentDataSourceId, mapContentPage, "query_content_tasks", notionContext);
 }
 
-async function getBrandsById() {
-  const brands = await queryAllDataSource(config.notion.brandsDataSourceId, mapBrandPage, "query_brands");
+async function getBrandsById(notionContext) {
+  const brands = await queryAllDataSource(notionContext.brandsDataSourceId, mapBrandPage, "query_brands", notionContext);
   return new Map(brands.map((brand) => [brand.id, brand]));
 }
 
 // Đồng bộ Instagram Account ID từ các Page đang đăng nhập FB (đã có instagram_business_account)
 // vào brand khớp theo Facebook Page ID. Ghi thẳng cột "Instagram Account ID" trên Brands DB.
-async function syncInstagramAccountIds(sessionPages) {
+async function syncInstagramAccountIds(sessionPages, options = {}) {
+  const notionContext = resolveNotionContext(options);
   const pages = Array.isArray(sessionPages) ? sessionPages : [];
-  const brands = [...(await getBrandsById()).values()];
+  const brands = [...(await getBrandsById(notionContext)).values()];
   const results = [];
 
   for (const page of pages) {
@@ -705,7 +727,7 @@ async function syncInstagramAccountIds(sessionPages) {
       }
 
       try {
-        await notion.pages.update({
+        await notionContext.client.pages.update({
           page_id: brand.id,
           properties: {
             [BRAND_PROPS.instagramAccountId]: { rich_text: [{ text: { content: String(igId) } }] }
@@ -1113,7 +1135,8 @@ function getPublishReadiness(task, brand, page, now, options = {}) {
 }
 
 async function getResolvedTasks(sessionPages, options = {}) {
-  const [tasks, brandsById] = await Promise.all([getContentTasks(), getBrandsById()]);
+  const notionContext = resolveNotionContext(options);
+  const [tasks, brandsById] = await Promise.all([getContentTasks(notionContext), getBrandsById(notionContext)]);
   const hiddenPageIds = pageVisibilityService.getHiddenPageIds(sessionPages);
   const pagesById = new Map(sessionPages.map((page) => [page.id, page]));
   const now = new Date();
@@ -1244,6 +1267,7 @@ function serializeResolvedTask(resolved) {
 
 async function listTasksForSession(sessionPages, filters = {}) {
   const resolvedTasks = await getResolvedTasks(sessionPages, {
+    notionContext: resolveNotionContext(filters),
     driveAuth: filters.driveAuth,
     instagramAuth: filters.instagramAuth,
     gbpAuth: filters.gbpAuth,
@@ -1314,8 +1338,8 @@ function getRetryPreparationReadiness(resolved, readinessOptions, now) {
   };
 }
 
-async function updateTaskRetryReady(task, syncedAt) {
-  await notion.pages.update({
+async function updateTaskRetryReady(task, syncedAt, notionContext) {
+  await notionContext.client.pages.update({
     page_id: task.id,
     properties: {
       [CONTENT_PROPS.publishStatus]: selectContent(UNSCHEDULED_STATUS),
@@ -1329,7 +1353,9 @@ async function updateTaskRetryReady(task, syncedAt) {
 }
 
 async function prepareFailedTasksForRetry(sessionPages, options = {}) {
+  const notionContext = resolveNotionContext(options);
   const resolvedTasks = await getResolvedTasks(sessionPages, {
+    notionContext,
     driveAuth: options.driveAuth,
     instagramAuth: options.instagramAuth,
     gbpAuth: options.gbpAuth,
@@ -1364,7 +1390,7 @@ async function prepareFailedTasksForRetry(sessionPages, options = {}) {
     }
 
     try {
-      await updateTaskRetryReady(resolved.task, now);
+      await updateTaskRetryReady(resolved.task, now, notionContext);
       results.push({
         success: true,
         taskId: resolved.task.id,
@@ -1396,7 +1422,7 @@ async function prepareFailedTasksForRetry(sessionPages, options = {}) {
 // Ghi trạng thái Đã đăng khi MỌI kênh đã xong. Cột Facebook Post ID/URL chỉ lấy từ
 // kết quả Facebook (giữ nguyên hành vi cũ); kênh khác chỉ phản ánh qua Publish Status.
 // Trả về permalink để caller log: ưu tiên Facebook, nếu không có thì lấy kênh đầu tiên có link.
-async function updateTaskPublishSuccess(task, facebookResult, channelResults, syncedAt) {
+async function updateTaskPublishSuccess(task, facebookResult, channelResults, syncedAt, notionContext) {
   const properties = {
     [CONTENT_PROPS.publishStatus]: selectContent(PUBLISHED_STATUS),
     [CONTENT_PROPS.publishedAt]: richTextContent(syncedAt.toISOString()),
@@ -1436,7 +1462,7 @@ async function updateTaskPublishSuccess(task, facebookResult, channelResults, sy
     properties[CONTENT_PROPS.tiktokPostUrl] = richTextContent(tiktokResult.permalinkUrl || "");
   }
 
-  await notion.pages.update({
+  await notionContext.client.pages.update({
     page_id: task.id,
     properties
   });
@@ -1444,10 +1470,10 @@ async function updateTaskPublishSuccess(task, facebookResult, channelResults, sy
   return permalinkUrl;
 }
 
-async function updateTaskManualSuccess(task, facebookResult, syncedAt) {
+async function updateTaskManualSuccess(task, facebookResult, syncedAt, notionContext) {
   const permalinkUrl = normalizeFacebookPostUrl(facebookResult.permalinkUrl) || `https://www.facebook.com/${facebookResult.postId}`;
 
-  await notion.pages.update({
+  await notionContext.client.pages.update({
     page_id: task.id,
     properties: {
       [CONTENT_PROPS.publishStatus]: selectContent(PUBLISHED_STATUS),
@@ -1462,8 +1488,9 @@ async function updateTaskManualSuccess(task, facebookResult, syncedAt) {
   return permalinkUrl;
 }
 
-async function markTaskManualPostSuccess(taskId, sessionPages, pageId, facebookResult) {
-  const resolvedTasks = await getResolvedTasks(sessionPages);
+async function markTaskManualPostSuccess(taskId, sessionPages, pageId, facebookResult, options = {}) {
+  const notionContext = resolveNotionContext(options);
+  const resolvedTasks = await getResolvedTasks(sessionPages, { notionContext });
   const resolvedTask = resolvedTasks.find((resolved) => resolved.task.id === taskId);
 
   if (!resolvedTask) {
@@ -1474,11 +1501,11 @@ async function markTaskManualPostSuccess(taskId, sessionPages, pageId, facebookR
     throw createPublicError(400, "Task Notion không thuộc Page đang đăng thủ công.");
   }
 
-  return updateTaskManualSuccess(resolvedTask.task, facebookResult, new Date());
+  return updateTaskManualSuccess(resolvedTask.task, facebookResult, new Date(), notionContext);
 }
 
-async function updateTaskScheduled(task, syncedAt) {
-  await notion.pages.update({
+async function updateTaskScheduled(task, syncedAt, notionContext) {
+  await notionContext.client.pages.update({
     page_id: task.id,
     properties: {
       [CONTENT_PROPS.publishStatus]: selectContent(SCHEDULED_STATUS),
@@ -1488,8 +1515,8 @@ async function updateTaskScheduled(task, syncedAt) {
   });
 }
 
-async function updateTaskPublishing(task, syncedAt) {
-  await notion.pages.update({
+async function updateTaskPublishing(task, syncedAt, notionContext) {
+  await notionContext.client.pages.update({
     page_id: task.id,
     properties: {
       [CONTENT_PROPS.publishStatus]: selectContent(PUBLISHING_STATUS),
@@ -1714,10 +1741,10 @@ function buildFailureNotes(task, message, error, syncedAt, mediaItems = []) {
   ].join("\n") + previousNotes;
 }
 
-async function updateTaskFailure(task, message, syncedAt, error, mediaItems = []) {
+async function updateTaskFailure(task, message, syncedAt, error, mediaItems = [], notionContext) {
   const notes = buildFailureNotes(task, message, error, syncedAt, mediaItems);
 
-  await notion.pages.update({
+  await notionContext.client.pages.update({
     page_id: task.id,
     properties: {
       [CONTENT_PROPS.publishStatus]: selectContent(FAILED_STATUS),
@@ -1731,7 +1758,7 @@ async function updateTaskFailure(task, message, syncedAt, error, mediaItems = []
   });
 }
 
-async function scheduleResolvedTask(resolved) {
+async function scheduleResolvedTask(resolved, notionContext) {
   const { task, scheduleReadiness } = resolved;
 
   if (!scheduleReadiness.readyToSchedule) {
@@ -1745,9 +1772,9 @@ async function scheduleResolvedTask(resolved) {
   }
 
   try {
-    await updateTaskScheduled(task, new Date());
+    await updateTaskScheduled(task, new Date(), notionContext);
     // Lớp 2: chốt mục tiêu đăng dự kiến để phát hiện đổi mapping trước giờ đăng.
-    snapshotExpectedTargets(resolved);
+    snapshotExpectedTargets(resolved, notionContext);
 
     return {
       success: true,
@@ -1758,7 +1785,7 @@ async function scheduleResolvedTask(resolved) {
     const message = error.publicMessage || error.message || "Không cập nhật được trạng thái Đã lên lịch.";
 
     try {
-      await updateTaskFailure(task, message, new Date(), error);
+      await updateTaskFailure(task, message, new Date(), error, [], notionContext);
     } catch (notionError) {
       logNotionError("update_task_schedule_failure", notionError);
     }
@@ -1774,7 +1801,9 @@ async function scheduleResolvedTask(resolved) {
 }
 
 async function scheduleReadyTasks(sessionPages, options = {}) {
+  const notionContext = resolveNotionContext(options);
   const resolvedTasks = await getResolvedTasks(sessionPages, {
+    notionContext,
     driveAuth: options.driveAuth,
     instagramAuth: options.instagramAuth,
     gbpAuth: options.gbpAuth,
@@ -1798,7 +1827,7 @@ async function scheduleReadyTasks(sessionPages, options = {}) {
   const results = [];
 
   for (const resolvedTask of readyTasks) {
-    results.push(await scheduleResolvedTask(resolvedTask));
+    results.push(await scheduleResolvedTask(resolvedTask, notionContext));
   }
 
   return {
@@ -1876,13 +1905,14 @@ function verifyPublishTarget(resolved, channelKey, account) {
 }
 
 // Chốt "mục tiêu đăng dự kiến" cho từng kênh ngay khi lên lịch (nguồn để phát hiện đổi mapping).
-function snapshotExpectedTargets(resolved) {
+function snapshotExpectedTargets(resolved, notionContext) {
+  const userId = notionContext ? notionContext.userId : null;
   try {
     for (const channelKey of resolved.task.channels) {
       const resolvedChannel = resolved.channelAccounts[channelKey];
 
       if (resolvedChannel && resolvedChannel.supported && resolvedChannel.account && resolvedChannel.account.id) {
-        publishJobsService.recordExpectedAccount(resolved.task.id, channelKey, String(resolvedChannel.account.id));
+        publishJobsService.recordExpectedAccount(resolved.task.id, channelKey, String(resolvedChannel.account.id), userId);
       }
     }
   } catch (error) {
@@ -1892,6 +1922,7 @@ function snapshotExpectedTargets(resolved) {
 
 async function publishResolvedTask(resolved, options = {}) {
   const { task, page, readiness } = resolved;
+  const notionContext = resolveNotionContext(options);
   const startedAt = new Date();
 
   if (!readiness.readyToPublish) {
@@ -1944,7 +1975,7 @@ async function publishResolvedTask(resolved, options = {}) {
       });
     }
 
-    await updateTaskPublishing(task, startedAt);
+    await updateTaskPublishing(task, startedAt, notionContext);
     // Resolve media 1 lần (buffer từ Drive cho Facebook); kênh dùng public URL sẽ bỏ qua mediaItems.
     mediaItems = await googleDriveService.resolveMediaItems(task.mediaUrls, options.driveAuth);
 
@@ -1994,7 +2025,8 @@ async function publishResolvedTask(resolved, options = {}) {
         contentType: readiness.contentType,
         mediaItems,
         publicMediaUrls,
-        driveAuth: options.driveAuth
+        driveAuth: options.driveAuth,
+        userId: notionContext.userId
       });
 
       channelResults.push({
@@ -2008,7 +2040,7 @@ async function publishResolvedTask(resolved, options = {}) {
     const message = error.publicMessage || error.message || "Đăng bài thất bại.";
 
     try {
-      await updateTaskFailure(task, message, new Date(), error, mediaItems);
+      await updateTaskFailure(task, message, new Date(), error, mediaItems, notionContext);
     } catch (notionError) {
       logNotionError("update_task_failure", notionError);
     }
@@ -2034,7 +2066,7 @@ async function publishResolvedTask(resolved, options = {}) {
   const primaryResult = facebookResult || channelResults[0] || null;
 
   try {
-    const permalinkUrl = await updateTaskPublishSuccess(task, facebookResult, channelResults, startedAt);
+    const permalinkUrl = await updateTaskPublishSuccess(task, facebookResult, channelResults, startedAt, notionContext);
 
     return {
       success: true,
@@ -2170,7 +2202,9 @@ async function publishTasksWithGuard(readyTasks, totalResolved, options) {
 }
 
 async function publishDueTasks(sessionPages, options = {}) {
+  const notionContext = resolveNotionContext(options);
   const resolvedTasks = await getResolvedTasks(sessionPages, {
+    notionContext,
     driveAuth: options.driveAuth,
     instagramAuth: options.instagramAuth,
     gbpAuth: options.gbpAuth,
@@ -2178,11 +2212,13 @@ async function publishDueTasks(sessionPages, options = {}) {
   });
   const readyTasks = resolvedTasks.filter((resolved) => resolved.readiness.readyToPublish);
 
-  return publishTasksWithGuard(readyTasks, resolvedTasks.length, { ...options, respectChannelToggles: true });
+  return publishTasksWithGuard(readyTasks, resolvedTasks.length, { ...options, notionContext, respectChannelToggles: true });
 }
 
 async function publishOverdueTasks(sessionPages, options = {}) {
+  const notionContext = resolveNotionContext(options);
   const resolvedTasks = await getResolvedTasks(sessionPages, {
+    notionContext,
     driveAuth: options.driveAuth,
     instagramAuth: options.instagramAuth,
     gbpAuth: options.gbpAuth,
@@ -2195,12 +2231,12 @@ async function publishOverdueTasks(sessionPages, options = {}) {
       !resolved.readiness.tooOldOverdue
   );
 
-  return publishTasksWithGuard(overdueTasks, resolvedTasks.length, { ...options, respectChannelToggles: true });
+  return publishTasksWithGuard(overdueTasks, resolvedTasks.length, { ...options, notionContext, respectChannelToggles: true });
 }
 
 // Ghi "Lỗi đăng" cho task kẹt mà KHÔNG có bằng chứng đã đăng: kèm ghi chú cảnh báo
 // mạnh + bật Manual Action Required để người xử lý kiểm tra page trước khi đăng lại.
-async function updateTaskStuckFailure(task, syncedAt) {
+async function updateTaskStuckFailure(task, syncedAt, notionContext) {
   const message = "Kẹt ở trạng thái Đang đăng quá lâu — cần kiểm tra thủ công.";
   const note = [
     `Hòa giải tự động (${formatNoteTime(syncedAt)})`,
@@ -2212,7 +2248,7 @@ async function updateTaskStuckFailure(task, syncedAt) {
     "QUAN TRỌNG: Hãy MỞ PAGE kiểm tra xem bài đã lên hay chưa TRƯỚC KHI đăng lại, để tránh đăng trùng lên page thật."
   ].join("\n");
 
-  await notion.pages.update({
+  await notionContext.client.pages.update({
     page_id: task.id,
     properties: {
       [CONTENT_PROPS.publishStatus]: selectContent(FAILED_STATUS),
@@ -2225,7 +2261,7 @@ async function updateTaskStuckFailure(task, syncedAt) {
 }
 
 // Hòa giải 1 task kẹt: có bằng chứng đã đăng -> "Đã đăng"; không có -> "Lỗi đăng" (không tự đăng lại).
-async function reconcileOneStuckTask(resolved) {
+async function reconcileOneStuckTask(resolved, notionContext) {
   const task = resolved.task;
   const syncedAt = new Date();
   const jobs = publishJobsService.listJobsForTask(task.id);
@@ -2249,12 +2285,12 @@ async function reconcileOneStuckTask(resolved) {
 
   try {
     if (hasEvidence) {
-      await updateTaskPublishSuccess(task, facebookResult, channelResults, syncedAt);
+      await updateTaskPublishSuccess(task, facebookResult, channelResults, syncedAt, notionContext);
       console.warn(`[Notion Auto Publish] Hòa giải task kẹt -> Đã đăng (có bằng chứng): ${task.id}`);
       return { taskId: task.id, title: task.title, outcome: "published" };
     }
 
-    await updateTaskStuckFailure(task, syncedAt);
+    await updateTaskStuckFailure(task, syncedAt, notionContext);
     console.warn(`[Notion Auto Publish] Hòa giải task kẹt -> Lỗi đăng (không bằng chứng, cần kiểm tra): ${task.id}`);
     return { taskId: task.id, title: task.title, outcome: "failed" };
   } catch (error) {
@@ -2265,7 +2301,9 @@ async function reconcileOneStuckTask(resolved) {
 
 // Quét các task kẹt ở "Đang đăng" quá lâu và hòa giải chúng (chống kẹt vĩnh viễn / đăng trùng).
 async function reconcileStuckPublishingTasks(sessionPages, options = {}) {
+  const notionContext = resolveNotionContext(options);
   const resolvedTasks = await getResolvedTasks(sessionPages, {
+    notionContext,
     driveAuth: options.driveAuth,
     instagramAuth: options.instagramAuth,
     gbpAuth: options.gbpAuth,
@@ -2294,7 +2332,7 @@ async function reconcileStuckPublishingTasks(sessionPages, options = {}) {
   const results = [];
 
   for (const resolved of stuckTasks) {
-    results.push(await reconcileOneStuckTask(resolved));
+    results.push(await reconcileOneStuckTask(resolved, notionContext));
   }
 
   return {
@@ -2306,7 +2344,9 @@ async function reconcileStuckPublishingTasks(sessionPages, options = {}) {
 }
 
 async function publishSingleTask(taskId, sessionPages, options = {}) {
+  const notionContext = resolveNotionContext(options);
   const resolvedTasks = await getResolvedTasks(sessionPages, {
+    notionContext,
     driveAuth: options.driveAuth,
     instagramAuth: options.instagramAuth,
     gbpAuth: options.gbpAuth,
@@ -2319,13 +2359,14 @@ async function publishSingleTask(taskId, sessionPages, options = {}) {
   }
 
   if (resolvedTask.scheduleReadiness.readyToSchedule) {
-    const scheduleResult = await scheduleResolvedTask(resolvedTask);
+    const scheduleResult = await scheduleResolvedTask(resolvedTask, notionContext);
 
     if (!scheduleResult.success) {
       return scheduleResult;
     }
 
     const refreshedTasks = await getResolvedTasks(sessionPages, {
+      notionContext,
       driveAuth: options.driveAuth
     });
     resolvedTask = refreshedTasks.find((resolved) => resolved.task.id === taskId);
@@ -2350,12 +2391,12 @@ async function publishSingleTask(taskId, sessionPages, options = {}) {
     });
   }
 
-  return publishResolvedTask(resolvedTask, options);
+  return publishResolvedTask(resolvedTask, { ...options, notionContext });
 }
 
 // Danh sách brand × kênh kèm trạng thái bật/tắt tự đăng (cho UI điều khiển).
-async function listBrandChannelToggles() {
-  const brandsById = await getBrandsById();
+async function listBrandChannelToggles(options = {}) {
+  const brandsById = await getBrandsById(resolveNotionContext(options));
 
   return [...brandsById.values()]
     .map((brand) => {
@@ -2374,8 +2415,8 @@ async function listBrandChannelToggles() {
 }
 
 // Danh sách brand rút gọn (id/code/name) để import Excel map Brand Code -> Primary Brand.
-async function listBrands() {
-  const brandsById = await getBrandsById();
+async function listBrands(options = {}) {
+  const brandsById = await getBrandsById(resolveNotionContext(options));
   return [...brandsById.values()].map((brand) => ({
     id: brand.id,
     code: brand.code,
@@ -2397,6 +2438,7 @@ function setBrandChannelToggle(brandId, channel, enabled) {
 }
 
 module.exports = {
+  buildNotionContext,
   syncInstagramAccountIds,
   listBrandChannelToggles,
   setBrandChannelToggle,
