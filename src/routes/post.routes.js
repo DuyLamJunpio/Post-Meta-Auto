@@ -119,11 +119,16 @@ router.get("/pages/:pageId/posts", async (req, res, next) => {
     const page = findSessionPage(req);
     ensurePage(page);
 
-    const posts = await facebookService.getPagePosts(page.id, page.pageAccessToken);
+    const { posts, warning } = await facebookService.getPagePostsWithDiagnosis({
+      pageId: page.id,
+      pageAccessToken: page.pageAccessToken,
+      userAccessToken: req.session.facebookUser.userAccessToken
+    });
 
     res.json({
       success: true,
-      posts
+      posts,
+      warning
     });
   } catch (error) {
     next(error);

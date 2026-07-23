@@ -347,6 +347,91 @@ async function getPagePosts(pageId, pageAccessToken) {
   }
 }
 
+// Danh sách quyền đã được CẤP cho user token — để chẩn đoán vì sao không đọc được bài.
+async function getGrantedPermissions(userAccessToken) {
+  try {
+    const response = await axios.get(`${config.facebook.graphApiBaseUrl}/me/permissions`, {
+      params: { access_token: userAccessToken }
+    });
+    const rows = (response.data && response.data.data) || [];
+    return rows.filter((row) => row.status === "granted").map((row) => row.permission);
+  } catch (error) {
+    console.warn("[Meta Graph API] Không đọc được /me/permissions:", error.message);
+    return [];
+  }
+}
+
+// Lấy Page Access Token "chuẩn" trực tiếp từ Page bằng user token. Khắc phục trường hợp token
+// lấy qua Business Portfolio (owned_pages/client_pages) đọc được IG nhưng KHÔNG đọc được /feed.
+async function getPageAccessToken(pageId, userAccessToken) {
+  try {
+    const response = await axios.get(`${config.facebook.graphApiBaseUrl}/${pageId}`, {
+      params: { fields: "access_token", access_token: userAccessToken }
+    });
+    return (response.data && response.data.access_token) || null;
+  } catch (error) {
+    console.warn("[Meta Graph API] Không lấy được Page Access Token chuẩn:", error.message);
+    return null;
+  }
+}
+
+const READ_POSTS_PERMISSION = "pages_read_engagement";
+
+// Lấy bài Facebook của Page KÈM chẩn đoán. Nếu rỗng/lỗi: kiểm tra quyền, rồi thử Page token chuẩn.
+// Trả { posts, warning } để UI hiển thị lý do rõ ràng thay vì im lặng "không có bài".
+async function getPagePostsWithDiagnosis({ pageId, pageAccessToken, userAccessToken }) {
+  let posts = [];
+  let feedError = null;
+
+  try {
+    posts = await getPagePosts(pageId, pageAccessToken);
+  } catch (error) {
+    feedError = error;
+  }
+
+  if (posts && posts.length > 0) {
+    return { posts, warning: null };
+  }
+
+  // Không có bài (rỗng hoặc lỗi) -> chẩn đoán quyền trước.
+  const granted = await getGrantedPermissions(userAccessToken);
+
+  if (granted.length > 0 && !granted.includes(READ_POSTS_PERMISSION)) {
+    return {
+      posts: [],
+      warning:
+        `Tài khoản Facebook này chưa cấp quyền đọc bài Page (${READ_POSTS_PERMISSION}) nên không hiển thị bài Facebook. ` +
+        "Hãy đăng xuất rồi đăng nhập lại bằng Facebook và cấp ĐỦ quyền khi được hỏi."
+    };
+  }
+
+  // Quyền đủ nhưng vẫn rỗng/lỗi -> thử Page Access Token chuẩn (token qua Business Portfolio hay lỗi).
+  if (userAccessToken) {
+    const canonicalToken = await getPageAccessToken(pageId, userAccessToken);
+
+    if (canonicalToken && canonicalToken !== pageAccessToken) {
+      try {
+        const retryPosts = await getPagePosts(pageId, canonicalToken);
+        if (retryPosts && retryPosts.length > 0) {
+          return { posts: retryPosts, warning: null };
+        }
+      } catch (retryError) {
+        feedError = feedError || retryError;
+      }
+    }
+  }
+
+  if (feedError) {
+    const providerMessage = feedError.details && feedError.details.providerMessage;
+    return {
+      posts: [],
+      warning: `Không đọc được bài Facebook của Page: ${providerMessage || feedError.publicMessage || feedError.message}`
+    };
+  }
+
+  return { posts: [], warning: null };
+}
+
 // Lấy chi tiết 1 bài đăng (nội dung + ảnh + permalink) để cảnh báo hiển thị rõ là bài nào.
 // Không throw: nếu không lấy được thì trả null để không chặn thao tác chính (vd thu hồi).
 async function getPagePostDetail(postId, pageAccessToken) {
@@ -880,6 +965,9 @@ module.exports = {
   getManagedPages,
   canCreateContent,
   getPagePosts,
+  getPagePostsWithDiagnosis,
+  getGrantedPermissions,
+  getPageAccessToken,
   getPagePostDetail,
   getInstagramMedia,
   createPagePost,

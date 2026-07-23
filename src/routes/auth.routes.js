@@ -28,7 +28,10 @@ router.get("/facebook", (req, res) => {
     redirect_uri: config.facebook.redirectUri,
     scope: config.facebook.scopes.join(","),
     state,
-    response_type: "code"
+    response_type: "code",
+    // Buộc Facebook hỏi lại các quyền người dùng đã từng từ chối (vd pages_read_engagement),
+    // thay vì bỏ qua âm thầm -> tránh trường hợp token thiếu quyền đọc bài Page.
+    auth_type: "rerequest"
   });
 
   res.redirect(`${config.facebook.oauthDialogUrl}?${params.toString()}`);

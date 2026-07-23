@@ -127,7 +127,7 @@ async function renderFacebookTable(page) {
     const posts = (data && data.posts) || [];
     const rows =
       posts.length === 0
-        ? [emptyRow(4, "Chưa có bài đăng gần đây.")]
+        ? [emptyRow(4, (data && data.warning) || "Chưa có bài đăng gần đây.")]
         : posts.map((post) => buildFacebookRow(page, post));
     replaceRows(section, rows);
   } catch (error) {
