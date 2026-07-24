@@ -70,6 +70,10 @@ app.use(
   })
 );
 
+// Cổng vào = hệ tài khoản đa người dùng (đăng ký/đăng nhập + kết nối Facebook/Notion per-user).
+// Trang admin cũ vẫn truy cập trực tiếp tại /index.html hoặc /dashboard.html.
+app.get("/", (req, res) => res.redirect("/account.html"));
+
 app.use(express.static(path.join(__dirname, "public")));
 
 // Proxy media tạm cho IG/GBP/TikTok fetch — public, KHÔNG qua requireAuth.
