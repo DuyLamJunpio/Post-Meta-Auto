@@ -3,6 +3,7 @@ const express = require("express");
 const authService = require("../services/auth.service");
 const userFacebookService = require("../services/user-facebook.service");
 const notionOauthService = require("../services/notion-oauth.service");
+const notifier = require("../services/notifier");
 
 function requireAccount(req, res, next) {
   if (!req.session.userId) {
@@ -25,6 +26,20 @@ router.post("/register", async (req, res, next) => {
     });
     req.session.userId = user.id;
     res.json({ success: true, message: "Đăng ký thành công.", user });
+
+    // Báo Telegram khi có tài khoản mới — fire-and-forget, không chặn/không làm hỏng luồng đăng ký.
+    notifier
+      .notify({
+        level: "important",
+        title: "🆕 Tài khoản mới đăng ký",
+        lines: [
+          `Tên: ${user.name || "(không tên)"}`,
+          `Email: ${user.email}`,
+          user.phone ? `SĐT: ${user.phone}` : null,
+          `Thời gian: ${new Date(user.createdAt || Date.now()).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" })}`
+        ]
+      })
+      .catch((notifyError) => console.warn("[Account] Không gửi được cảnh báo đăng ký:", notifyError.message));
   } catch (error) {
     next(error);
   }

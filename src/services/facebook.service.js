@@ -777,12 +777,22 @@ async function getPageInsights({ pageId, pageAccessToken, since, until }) {
     } catch (minimalError) {
       const graphError =
         minimalError.response && minimalError.response.data && minimalError.response.data.error;
-      const reason = graphError && graphError.message ? graphError.message : minimalError.message;
-      console.warn("[Meta Graph API] Không lấy được Page Insights:", reason);
+      const providerMessage = graphError && graphError.message ? graphError.message : minimalError.message;
+      const code = graphError && graphError.code;
+      const type = graphError && graphError.type;
+      console.warn("[Meta Graph API] Không lấy được Page Insights:", { code, type, providerMessage });
+
+      // Lỗi quyền (OAuthException / code 10 / 200 / 190) => token chưa có read_insights.
+      const isPermissionError =
+        type === "OAuthException" || [10, 190, 200, 294].includes(Number(code));
+
+      const hint = isPermissionError
+        ? "Token hiện tại CHƯA có quyền read_insights. Hãy đăng xuất Facebook trong app rồi đăng nhập lại và tick đủ quyền (sau khi server đã chạy code mới)."
+        : "Có thể metric đã bị Meta ngừng ở phiên bản API này.";
+
       return {
         available: false,
-        reason:
-          "Không lấy được Insight cấp Page (reach/impressions). Thường do thiếu quyền read_insights hoặc metric đã bị Meta ngừng ở phiên bản API này."
+        reason: `Không lấy được Insight cấp Page (reach/impressions): ${providerMessage}. ${hint}`
       };
     }
   }
