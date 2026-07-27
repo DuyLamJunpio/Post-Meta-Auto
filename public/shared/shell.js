@@ -90,6 +90,11 @@ export function mountShell(activeHref) {
     return;
   }
 
+  // Trên desktop: ghim sidebar theo viewport (sticky) để KHÔNG cuộn theo nội dung.
+  // Thay lg:static bằng sticky + cao bằng màn hình + tự cuộn riêng khi nav dài.
+  mount.classList.remove("lg:static");
+  mount.classList.add("lg:sticky", "lg:top-0", "lg:h-screen", "lg:self-start", "lg:overflow-y-auto");
+
   const nameEl = el("p", { class: "text-sm font-semibold text-slate-800 truncate", text: "Đang tải..." });
   const logoutButton = el("button", {
     class: "w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors",
