@@ -383,8 +383,8 @@ async function buildPageAnalytics({ page, userAccessToken, maxItems = 3000 }) {
   let insights = { available: false, reason: "Chưa truy vấn." };
   try {
     const until = Math.floor(Date.now() / 1000);
-    // Graph giới hạn cửa sổ insight; lấy ~24 tháng gần nhất là hợp lý cho biểu đồ xu hướng.
-    const since = until - 60 * 60 * 24 * 365 * 2;
+    // Graph giới hạn cửa sổ insight theo ngày (~93 ngày/lần); lấy 90 ngày gần nhất cho biểu đồ xu hướng.
+    const since = until - 60 * 60 * 24 * 90;
     insights = await facebookService.getPageInsights({
       pageId: page.id,
       pageAccessToken: page.pageAccessToken,

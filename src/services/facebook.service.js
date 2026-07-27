@@ -730,26 +730,18 @@ async function getAllInstagramMedia({ instagramUserId, pageAccessToken, maxItems
 // dần theo version, nên không được để lỗi ở đây làm hỏng cả báo cáo.
 // Trả { available, metrics?, reason? }. metrics: [{ name, title, total, series:[{date,value}] }].
 async function getPageInsights({ pageId, pageAccessToken, since, until }) {
-  const metricList = [
+  // Danh sách metric ỨNG VIÊN. Meta ngừng nhiều metric Page theo từng version API, và chỉ cần
+  // 1 metric sai là request GỘP trả (#100) hỏng cả lô. Vì vậy HỎI TỪNG METRIC riêng và chỉ giữ
+  // metric còn sống -> phần Insight vẫn hiện với các metric hợp lệ, tự sống qua các lần Meta ngừng.
+  const candidateMetrics = [
     "page_impressions",
     "page_impressions_unique",
     "page_post_engagements",
+    "page_views_total",
     "page_fans",
-    "page_views_total"
+    "page_daily_follows_unique",
+    "page_fan_adds"
   ];
-
-  async function requestMetrics(metrics) {
-    const response = await axios.get(`${config.facebook.graphApiBaseUrl}/${pageId}/insights`, {
-      params: {
-        metric: metrics.join(","),
-        period: "day",
-        since,
-        until,
-        access_token: pageAccessToken
-      }
-    });
-    return (response.data && response.data.data) || [];
-  }
 
   function normalizeInsight(entry) {
     const values = Array.isArray(entry.values) ? entry.values : [];
@@ -766,36 +758,47 @@ async function getPageInsights({ pageId, pageAccessToken, since, until }) {
     };
   }
 
-  try {
-    const rows = await requestMetrics(metricList);
-    return { available: true, metrics: rows.map(normalizeInsight) };
-  } catch (fullError) {
-    // Thử tập tối thiểu thường còn sống.
-    try {
-      const rows = await requestMetrics(["page_impressions_unique", "page_post_engagements"]);
-      return { available: true, metrics: rows.map(normalizeInsight), partial: true };
-    } catch (minimalError) {
-      const graphError =
-        minimalError.response && minimalError.response.data && minimalError.response.data.error;
-      const providerMessage = graphError && graphError.message ? graphError.message : minimalError.message;
-      const code = graphError && graphError.code;
-      const type = graphError && graphError.type;
-      console.warn("[Meta Graph API] Không lấy được Page Insights:", { code, type, providerMessage });
+  async function requestMetric(metric) {
+    const response = await axios.get(`${config.facebook.graphApiBaseUrl}/${pageId}/insights`, {
+      params: { metric, period: "day", since, until, access_token: pageAccessToken }
+    });
+    return (response.data && response.data.data) || [];
+  }
 
-      // Lỗi quyền (OAuthException / code 10 / 200 / 190) => token chưa có read_insights.
-      const isPermissionError =
-        type === "OAuthException" || [10, 190, 200, 294].includes(Number(code));
+  const settled = await Promise.allSettled(candidateMetrics.map(requestMetric));
+  const metrics = [];
+  let lastError = null;
 
-      const hint = isPermissionError
-        ? "Token hiện tại CHƯA có quyền read_insights. Hãy đăng xuất Facebook trong app rồi đăng nhập lại và tick đủ quyền (sau khi server đã chạy code mới)."
-        : "Có thể metric đã bị Meta ngừng ở phiên bản API này.";
-
-      return {
-        available: false,
-        reason: `Không lấy được Insight cấp Page (reach/impressions): ${providerMessage}. ${hint}`
-      };
+  for (const result of settled) {
+    if (result.status === "fulfilled") {
+      for (const entry of result.value) {
+        metrics.push(normalizeInsight(entry));
+      }
+    } else {
+      lastError = result.reason;
     }
   }
+
+  if (metrics.length > 0) {
+    return { available: true, metrics };
+  }
+
+  // Không metric nào chạy -> phân loại lỗi để hướng dẫn đúng.
+  const graphError = lastError && lastError.response && lastError.response.data && lastError.response.data.error;
+  const providerMessage = (graphError && graphError.message) || (lastError && lastError.message) || "Không rõ";
+  const code = graphError && graphError.code;
+  const type = graphError && graphError.type;
+  console.warn("[Meta Graph API] Không lấy được Page Insights:", { code, type, providerMessage });
+
+  const isPermissionError = type === "OAuthException" || [10, 190, 200, 294].includes(Number(code));
+  const hint = isPermissionError
+    ? "Token hiện tại CHƯA có quyền read_insights — đăng xuất Facebook trong app rồi đăng nhập lại, tick đủ quyền."
+    : "Tất cả metric thử đều không hợp lệ ở phiên bản API này (Meta đã ngừng) — cần cập nhật danh sách metric.";
+
+  return {
+    available: false,
+    reason: `Không lấy được Insight cấp Page (reach/impressions): ${providerMessage}. ${hint}`
+  };
 }
 
 async function createPagePost(pageId, pageAccessToken, message, options = {}) {
