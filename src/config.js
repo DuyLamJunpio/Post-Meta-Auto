@@ -62,6 +62,10 @@ const config = {
     scopes: [
       "pages_show_list",
       "pages_read_engagement",
+      // read_insights: đọc Insight cấp Page (reach/impressions/lượt xem) cho trang Thống kê.
+      "read_insights",
+      // pages_read_user_content: đọc chắc chắn published_posts + nội dung bình luận/bài của khách.
+      "pages_read_user_content",
       "pages_manage_posts",
       // business_management: liệt kê Page nằm trong Business Portfolio (owned_pages/client_pages)
       // mà /me/accounts không trả về vì tài khoản không được gán vai trò trực tiếp trên Page.
