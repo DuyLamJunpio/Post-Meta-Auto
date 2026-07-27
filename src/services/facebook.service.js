@@ -485,6 +485,309 @@ async function getInstagramMedia(instagramUserId, pageAccessToken) {
   }
 }
 
+// ===========================================================================
+//  THỐNG KÊ (Analytics) — kéo TOÀN BỘ dữ liệu Page FB + IG để dựng báo cáo.
+// ===========================================================================
+
+// Duyệt hết phân trang KÈM trần an toàn (maxItems) để full history không "treo"
+// với Page hàng nghìn bài. Trả { items, truncated } để báo cáo biết đã cắt bớt.
+async function fetchPagedCapped(startUrl, initialParams, maxItems) {
+  const items = [];
+  let nextUrl = startUrl;
+  let params = initialParams;
+  let truncated = false;
+
+  while (nextUrl) {
+    const response = await axios.get(nextUrl, { params });
+    const data = response.data && response.data.data ? response.data.data : [];
+    items.push(...data);
+
+    if (maxItems && items.length >= maxItems) {
+      truncated = Boolean(response.data && response.data.paging && response.data.paging.next);
+      return { items: items.slice(0, maxItems), truncated };
+    }
+
+    nextUrl = response.data && response.data.paging ? response.data.paging.next : null;
+    params = undefined;
+  }
+
+  return { items, truncated };
+}
+
+// Thông tin hồ sơ Page (số fan/follower, danh mục...) để tính tỷ lệ tương tác.
+async function getPageProfile(pageId, pageAccessToken) {
+  try {
+    const response = await axios.get(`${config.facebook.graphApiBaseUrl}/${pageId}`, {
+      params: {
+        fields: "id,name,username,category,about,link,fan_count,followers_count,picture{url}",
+        access_token: pageAccessToken
+      }
+    });
+
+    const data = response.data || {};
+    return {
+      id: data.id,
+      name: data.name || "",
+      username: data.username || "",
+      category: data.category || "",
+      about: data.about || "",
+      link: data.link || null,
+      fanCount: Number(data.fan_count) || 0,
+      followersCount: Number(data.followers_count) || 0,
+      pictureUrl: data.picture && data.picture.data ? data.picture.data.url : null
+    };
+  } catch (error) {
+    handleGraphError("get_page_profile", error, "Không tải được hồ sơ Page.");
+  }
+}
+
+const REACTION_TYPES = ["LIKE", "LOVE", "HAHA", "WOW", "SAD", "ANGRY", "CARE"];
+
+// Trường đầy đủ: tổng reaction + reaction theo từng loại + comment + share + loại media.
+const POST_FIELDS_FULL = [
+  "id",
+  "created_time",
+  "message",
+  "story",
+  "permalink_url",
+  "status_type",
+  "attachments{media_type,type}",
+  "shares",
+  "comments.summary(true).limit(0)",
+  "reactions.summary(true).limit(0)",
+  ...REACTION_TYPES.map(
+    (type) => `reactions.type(${type}).limit(0).summary(true).as(reactions_${type.toLowerCase()})`
+  )
+].join(",");
+
+// Trường tối thiểu (fallback) nếu Graph từ chối bộ trường phức tạp ở trên.
+const POST_FIELDS_BASIC = [
+  "id",
+  "created_time",
+  "message",
+  "story",
+  "permalink_url",
+  "status_type",
+  "attachments{media_type,type}",
+  "shares",
+  "comments.summary(true).limit(0)",
+  "reactions.summary(true).limit(0)"
+].join(",");
+
+function readSummaryTotal(edge) {
+  return edge && edge.summary ? Number(edge.summary.total_count) || 0 : 0;
+}
+
+function normalizePagePost(post, hasReactionBreakdown) {
+  const reactionsTotal = readSummaryTotal(post.reactions);
+  const comments = readSummaryTotal(post.comments);
+  const shares = post.shares && Number.isFinite(Number(post.shares.count)) ? Number(post.shares.count) : 0;
+
+  const reactionsByType = {};
+  if (hasReactionBreakdown) {
+    for (const type of REACTION_TYPES) {
+      reactionsByType[type.toLowerCase()] = readSummaryTotal(post[`reactions_${type.toLowerCase()}`]);
+    }
+  }
+
+  const attachment = post.attachments && post.attachments.data && post.attachments.data[0];
+
+  return {
+    id: post.id,
+    message: post.message || post.story || "",
+    createdTime: post.created_time,
+    permalinkUrl: normalizeFacebookPermalink(post.permalink_url),
+    statusType: post.status_type || "",
+    mediaType: attachment ? attachment.media_type || attachment.type || "" : "",
+    reactions: reactionsTotal,
+    reactionsByType,
+    comments,
+    shares,
+    engagement: reactionsTotal + comments + shares
+  };
+}
+
+// Lấy TOÀN BỘ bài Page đã đăng kèm chỉ số tương tác (reaction/comment/share).
+// Tự thử Page token chuẩn nếu token hiện tại đọc rỗng (giống getPagePostsWithDiagnosis).
+// Nếu Graph từ chối bộ trường reaction-theo-loại -> tự lùi về trường cơ bản.
+async function getAllPagePosts({ pageId, pageAccessToken, userAccessToken, maxPosts = 3000 }) {
+  const baseUrl = `${config.facebook.graphApiBaseUrl}/${pageId}/published_posts`;
+
+  async function fetchWith(token, fields) {
+    return fetchPagedCapped(baseUrl, { fields, access_token: token, limit: 100 }, maxPosts);
+  }
+
+  let hasReactionBreakdown = true;
+  let result;
+  let usedToken = pageAccessToken;
+
+  try {
+    result = await fetchWith(pageAccessToken, POST_FIELDS_FULL);
+  } catch (fullFieldError) {
+    // Bộ trường phức tạp bị từ chối -> lùi về trường cơ bản (mất breakdown, giữ tổng).
+    hasReactionBreakdown = false;
+    try {
+      result = await fetchWith(pageAccessToken, POST_FIELDS_BASIC);
+    } catch (basicError) {
+      // Vẫn lỗi -> có thể do token qua Business Portfolio. Thử Page token chuẩn.
+      const canonicalToken = userAccessToken ? await getPageAccessToken(pageId, userAccessToken) : null;
+      if (canonicalToken && canonicalToken !== pageAccessToken) {
+        usedToken = canonicalToken;
+        hasReactionBreakdown = true;
+        try {
+          result = await fetchWith(canonicalToken, POST_FIELDS_FULL);
+        } catch (retryFull) {
+          hasReactionBreakdown = false;
+          result = await fetchWith(canonicalToken, POST_FIELDS_BASIC);
+        }
+      } else {
+        handleGraphError("get_all_page_posts", basicError, "Không tải được toàn bộ bài viết của Page.");
+      }
+    }
+  }
+
+  // Token hiện tại đọc rỗng nhưng có thể token chuẩn đọc được -> thử lại 1 lần.
+  if (result && result.items.length === 0 && userAccessToken) {
+    const canonicalToken = await getPageAccessToken(pageId, userAccessToken);
+    if (canonicalToken && canonicalToken !== usedToken) {
+      try {
+        const retry = await fetchWith(canonicalToken, POST_FIELDS_FULL);
+        if (retry.items.length > 0) {
+          result = retry;
+          hasReactionBreakdown = true;
+        }
+      } catch (retryError) {
+        // Giữ kết quả rỗng ban đầu — analytics.service sẽ báo "chưa có bài".
+      }
+    }
+  }
+
+  return {
+    posts: result.items.map((post) => normalizePagePost(post, hasReactionBreakdown)),
+    truncated: result.truncated,
+    hasReactionBreakdown
+  };
+}
+
+// Hồ sơ tài khoản Instagram Business liên kết Page.
+async function getInstagramProfile(instagramUserId, pageAccessToken) {
+  try {
+    const response = await axios.get(`${config.facebook.graphApiBaseUrl}/${instagramUserId}`, {
+      params: {
+        fields: "id,username,name,biography,website,followers_count,follows_count,media_count,profile_picture_url",
+        access_token: pageAccessToken
+      }
+    });
+
+    const data = response.data || {};
+    return {
+      id: data.id,
+      username: data.username || "",
+      name: data.name || "",
+      biography: data.biography || "",
+      website: data.website || null,
+      followersCount: Number(data.followers_count) || 0,
+      followsCount: Number(data.follows_count) || 0,
+      mediaCount: Number(data.media_count) || 0,
+      profilePictureUrl: data.profile_picture_url || null
+    };
+  } catch (error) {
+    handleGraphError("get_instagram_profile", error, "Không tải được hồ sơ Instagram.");
+  }
+}
+
+// Lấy TOÀN BỘ media Instagram Business kèm like/comment.
+async function getAllInstagramMedia({ instagramUserId, pageAccessToken, maxItems = 3000 }) {
+  const baseUrl = `${config.facebook.graphApiBaseUrl}/${instagramUserId}/media`;
+  const fields = "id,caption,media_type,media_product_type,permalink,timestamp,like_count,comments_count";
+
+  try {
+    const result = await fetchPagedCapped(baseUrl, { fields, access_token: pageAccessToken, limit: 100 }, maxItems);
+
+    const media = result.items.map((item) => {
+      const likeCount = Number(item.like_count) || 0;
+      const commentsCount = Number(item.comments_count) || 0;
+      return {
+        id: item.id,
+        caption: item.caption || "",
+        mediaType: item.media_type || "",
+        mediaProductType: item.media_product_type || "",
+        permalinkUrl: item.permalink || null,
+        createdTime: item.timestamp,
+        likeCount,
+        commentsCount,
+        engagement: likeCount + commentsCount
+      };
+    });
+
+    return { media, truncated: result.truncated };
+  } catch (error) {
+    handleGraphError("get_all_instagram_media", error, "Không tải được toàn bộ media Instagram.");
+  }
+}
+
+// Insight cấp Page (reach/impressions...) — BEST-EFFORT: nhiều metric bị Meta khóa
+// dần theo version, nên không được để lỗi ở đây làm hỏng cả báo cáo.
+// Trả { available, metrics?, reason? }. metrics: [{ name, title, total, series:[{date,value}] }].
+async function getPageInsights({ pageId, pageAccessToken, since, until }) {
+  const metricList = [
+    "page_impressions",
+    "page_impressions_unique",
+    "page_post_engagements",
+    "page_fans",
+    "page_views_total"
+  ];
+
+  async function requestMetrics(metrics) {
+    const response = await axios.get(`${config.facebook.graphApiBaseUrl}/${pageId}/insights`, {
+      params: {
+        metric: metrics.join(","),
+        period: "day",
+        since,
+        until,
+        access_token: pageAccessToken
+      }
+    });
+    return (response.data && response.data.data) || [];
+  }
+
+  function normalizeInsight(entry) {
+    const values = Array.isArray(entry.values) ? entry.values : [];
+    const series = values.map((point) => ({
+      date: point.end_time || null,
+      value: Number(point.value) || 0
+    }));
+    return {
+      name: entry.name,
+      title: entry.title || entry.name,
+      description: entry.description || "",
+      total: series.reduce((totalSum, point) => totalSum + point.value, 0),
+      series
+    };
+  }
+
+  try {
+    const rows = await requestMetrics(metricList);
+    return { available: true, metrics: rows.map(normalizeInsight) };
+  } catch (fullError) {
+    // Thử tập tối thiểu thường còn sống.
+    try {
+      const rows = await requestMetrics(["page_impressions_unique", "page_post_engagements"]);
+      return { available: true, metrics: rows.map(normalizeInsight), partial: true };
+    } catch (minimalError) {
+      const graphError =
+        minimalError.response && minimalError.response.data && minimalError.response.data.error;
+      const reason = graphError && graphError.message ? graphError.message : minimalError.message;
+      console.warn("[Meta Graph API] Không lấy được Page Insights:", reason);
+      return {
+        available: false,
+        reason:
+          "Không lấy được Insight cấp Page (reach/impressions). Thường do thiếu quyền read_insights hoặc metric đã bị Meta ngừng ở phiên bản API này."
+      };
+    }
+  }
+}
+
 async function createPagePost(pageId, pageAccessToken, message, options = {}) {
   try {
     const form = new URLSearchParams();
@@ -970,6 +1273,11 @@ module.exports = {
   getPageAccessToken,
   getPagePostDetail,
   getInstagramMedia,
+  getPageProfile,
+  getAllPagePosts,
+  getInstagramProfile,
+  getAllInstagramMedia,
+  getPageInsights,
   createPagePost,
   createPageContent,
   updatePagePost,

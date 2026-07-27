@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Thống kê — Tự động đăng bài</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/shared/tw-config.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
+  </head>
+  <body class="min-h-screen bg-slate-50 text-slate-800 font-sans antialiased">
+    <div class="flex min-h-screen">
+      <div id="sidebar-backdrop" class="fixed inset-0 z-30 bg-slate-900/40 hidden lg:hidden"></div>
+      <aside
+        id="sidebar-mount"
+        class="fixed inset-y-0 left-0 z-40 w-64 -translate-x-full transition-transform duration-200 border-r border-slate-200 bg-white lg:static lg:translate-x-0 lg:shrink-0"
+        aria-label="Điều hướng"
+      ></aside>
+
+      <div class="flex min-w-0 flex-1 flex-col">
+        <header class="sticky top-0 z-20 flex flex-wrap items-center gap-3 border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur lg:px-8">
+          <button data-sidebar-toggle type="button" class="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-100 lg:hidden" aria-label="Mở menu">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5" /></svg>
+          </button>
+          <div class="min-w-0 flex-1">
+            <h1 class="text-lg font-bold text-slate-900">Thống kê chi tiết theo Page</h1>
+            <p class="text-xs text-slate-500">Toàn bộ lịch sử bài đăng · Facebook &amp; Instagram · phân tích tương tác</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <label for="page-select" class="sr-only">Chọn Page</label>
+            <select id="page-select" class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 focus:border-brand-500 focus:outline-none">
+              <option value="">Đang tải Page…</option>
+            </select>
+            <button id="refresh-btn" type="button" class="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600">Tải lại</button>
+          </div>
+        </header>
+
+        <main class="mx-auto w-full max-w-7xl flex-1 space-y-6 p-4 lg:p-8">
+          <p id="status" class="text-sm text-slate-500" aria-live="polite"></p>
+          <div id="warnings" class="space-y-2"></div>
+          <div id="report" class="space-y-8"></div>
+        </main>
+      </div>
+    </div>
+
+    <script type="module" src="/statistics.js"></script>
+  </body>
+</html>

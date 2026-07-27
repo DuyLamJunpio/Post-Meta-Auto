@@ -4,6 +4,7 @@ import { fetchJson, el } from "/shared/api.js";
 
 const NAV = [
   { href: "/dashboard.html", label: "Tổng quan", icon: iconGrid },
+  { href: "/statistics.html", label: "Thống kê", icon: iconChart },
   { href: "/tasks.html", label: "Tác vụ Notion", icon: iconCalendar },
   { href: "/import.html", label: "Nhập Excel", icon: iconUpload },
   { href: "/posts.html", label: "Bài đăng & An toàn", icon: iconShield },
@@ -20,6 +21,9 @@ function svg(pathMarkup) {
 
 function iconGrid() {
   return svg('<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h1.5A2.25 2.25 0 019.75 6v1.5A2.25 2.25 0 017.5 9.75H6A2.25 2.25 0 013.75 7.5V6zM3.75 16.5A2.25 2.25 0 016 14.25h1.5a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-1.5zM14.25 6A2.25 2.25 0 0116.5 3.75H18A2.25 2.25 0 0120.25 6v1.5A2.25 2.25 0 0118 9.75h-1.5A2.25 2.25 0 0114.25 7.5V6zM14.25 16.5a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-1.5A2.25 2.25 0 0114.25 18v-1.5z" />');
+}
+function iconChart() {
+  return svg('<path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />');
 }
 function iconCalendar() {
   return svg('<path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />');

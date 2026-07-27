@@ -16,6 +16,7 @@ const instagramRoutes = require("./src/routes/instagram.routes");
 const gbpRoutes = require("./src/routes/gbp.routes");
 const tiktokRoutes = require("./src/routes/tiktok.routes");
 const autoPublishRoutes = require("./src/routes/auto-publish.routes");
+const statsRoutes = require("./src/routes/stats.routes");
 const leadRoutes = require("./src/routes/lead.routes");
 const accountRoutes = require("./src/routes/account.routes");
 const { initAccountSchema } = require("./src/db/postgres");
@@ -104,6 +105,7 @@ app.use("/api", instagramRoutes);
 app.use("/api", gbpRoutes);
 app.use("/api", tiktokRoutes);
 app.use("/api", autoPublishRoutes);
+app.use("/api", statsRoutes);
 app.use("/api", notionRoutes);
 
 let notionAutoPublishRunning = false;
