@@ -8,6 +8,51 @@
   const signedInName = document.querySelector("#signed-in-name");
   const alertBox = document.querySelector("#alert");
   const logoutButton = document.querySelector("#logout-button");
+  const loginEmail = document.querySelector("#login-email");
+  const loginPassword = document.querySelector("#login-password");
+  const loginRemember = document.querySelector("#login-remember");
+
+  const REMEMBER_EMAIL_KEY = "app.rememberEmail";
+
+  // Lưu thông tin đăng nhập vào TRÌNH QUẢN LÝ MẬT KHẨU của trình duyệt (mã hóa, an toàn)
+  // để lần sau tự điền — không lưu mật khẩu dạng thô ở localStorage.
+  async function saveCredentialToBrowser(email, password) {
+    if (!window.PasswordCredential || !navigator.credentials) {
+      return;
+    }
+    try {
+      const credential = new window.PasswordCredential({ id: email, password, name: email });
+      await navigator.credentials.store(credential);
+    } catch {
+      /* trình duyệt từ chối lưu — bỏ qua, không ảnh hưởng đăng nhập */
+    }
+  }
+
+  // Ghi nhớ email để lần sau điền sẵn ô email (tiện, không nhạy cảm như mật khẩu).
+  function rememberEmail(email, remember) {
+    try {
+      if (remember && email) {
+        window.localStorage.setItem(REMEMBER_EMAIL_KEY, email);
+      } else {
+        window.localStorage.removeItem(REMEMBER_EMAIL_KEY);
+      }
+    } catch {
+      /* localStorage bị chặn — bỏ qua */
+    }
+  }
+
+  function prefillLoginEmail() {
+    try {
+      const saved = window.localStorage.getItem(REMEMBER_EMAIL_KEY);
+      if (saved && loginEmail && !loginEmail.value) {
+        loginEmail.value = saved;
+        if (loginRemember) loginRemember.checked = true;
+        if (loginPassword) loginPassword.focus();
+      }
+    } catch {
+      /* bỏ qua */
+    }
+  }
 
   const ACTIVE = "rounded-lg py-2 bg-white text-slate-900 shadow-sm";
   const INACTIVE = "rounded-lg py-2 text-slate-600";
@@ -178,11 +223,15 @@
     event.preventDefault();
     const button = loginForm.querySelector("button");
     button.disabled = true;
+    const email = loginEmail.value.trim();
+    const password = loginPassword.value;
+    const remember = Boolean(loginRemember && loginRemember.checked);
     try {
-      const data = await postJson("/account/login", {
-        email: document.querySelector("#login-email").value.trim(),
-        password: document.querySelector("#login-password").value
-      });
+      const data = await postJson("/account/login", { email, password, remember });
+      rememberEmail(email, remember);
+      if (remember) {
+        await saveCredentialToBrowser(email, password);
+      }
       showSignedIn(data.user);
     } catch (error) {
       showAlert(error.message, "error");
@@ -196,12 +245,16 @@
     const button = registerForm.querySelector("button");
     button.disabled = true;
     try {
+      const regEmail = document.querySelector("#reg-email").value.trim();
+      const regPassword = document.querySelector("#reg-password").value;
       const data = await postJson("/account/register", {
         name: document.querySelector("#reg-name").value.trim(),
-        email: document.querySelector("#reg-email").value.trim(),
+        email: regEmail,
         phone: document.querySelector("#reg-phone").value.trim(),
-        password: document.querySelector("#reg-password").value
+        password: regPassword
       });
+      rememberEmail(regEmail, true);
+      await saveCredentialToBrowser(regEmail, regPassword);
       showSignedIn(data.user);
     } catch (error) {
       showAlert(error.message, "error");
@@ -222,5 +275,6 @@
   tabRegister.addEventListener("click", () => selectTab("register"));
 
   selectTab("login");
+  prefillLoginEmail();
   checkSession();
 })();

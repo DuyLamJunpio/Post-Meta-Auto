@@ -62,6 +62,8 @@ app.use(
     secret: config.sessionSecret,
     resave: false,
     saveUninitialized: false,
+    // rolling: mỗi request làm mới tuổi cookie -> còn hoạt động thì không bị đăng xuất.
+    rolling: true,
     cookie: {
       httpOnly: true,
       secure: isSecureDeployment,

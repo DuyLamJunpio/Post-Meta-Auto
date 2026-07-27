@@ -45,10 +45,16 @@ router.post("/register", async (req, res, next) => {
   }
 });
 
+const REMEMBER_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 ngày
+
 router.post("/login", async (req, res, next) => {
   try {
     const user = await authService.authenticate(req.body && req.body.email, req.body && req.body.password);
     req.session.userId = user.id;
+    // "Ghi nhớ đăng nhập": kéo dài tuổi cookie phiên lên 30 ngày (mặc định 24 giờ).
+    if (req.body && req.body.remember) {
+      req.session.cookie.maxAge = REMEMBER_MAX_AGE_MS;
+    }
     res.json({ success: true, message: "Đăng nhập thành công.", user });
   } catch (error) {
     next(error);
