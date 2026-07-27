@@ -1,6 +1,7 @@
 const express = require("express");
 
 const analyticsService = require("../services/analytics.service");
+const audienceService = require("../services/audience.service");
 const pageVisibilityService = require("../services/page-visibility.service");
 
 const router = express.Router();
@@ -42,6 +43,22 @@ router.get("/stats/pages/:pageId", async (req, res, next) => {
     });
 
     res.json({ success: true, analytics });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Đối tượng khách hàng (nhân khẩu học) — tải riêng vì gọi IG demographics chậm & có thể bị chặn.
+router.get("/stats/pages/:pageId/audience", async (req, res, next) => {
+  try {
+    const page = findSessionPage(req);
+
+    if (!page) {
+      throw createPublicError(404, "Page ID không thuộc tài khoản đang đăng nhập.");
+    }
+
+    const audience = await audienceService.buildPageAudience({ page });
+    res.json({ success: true, audience });
   } catch (error) {
     next(error);
   }

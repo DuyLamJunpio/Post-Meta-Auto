@@ -801,6 +801,115 @@ async function getPageInsights({ pageId, pageAccessToken, since, until }) {
   };
 }
 
+// Nhân khẩu học người theo dõi Instagram (tuổi/giới tính/thành phố/quốc gia).
+// Dùng follower_demographics (metric_type=total_value + breakdown + timeframe). Cần
+// instagram_manage_insights và tài khoản đủ ~100 follower (Meta chặn vì riêng tư).
+// Hỏi từng breakdown (Promise.allSettled) để 1 breakdown lỗi không làm hỏng cả phần.
+async function getInstagramAudience({ instagramUserId, pageAccessToken, timeframe = "last_30_days" }) {
+  const breakdowns = ["age", "gender", "city", "country"];
+
+  async function requestBreakdown(breakdown) {
+    const response = await axios.get(`${config.facebook.graphApiBaseUrl}/${instagramUserId}/insights`, {
+      params: {
+        metric: "follower_demographics",
+        period: "lifetime",
+        metric_type: "total_value",
+        timeframe,
+        breakdown,
+        access_token: pageAccessToken
+      }
+    });
+    const data = (response.data && response.data.data) || [];
+    const entry = data[0];
+    const bucket =
+      entry && entry.total_value && Array.isArray(entry.total_value.breakdowns)
+        ? entry.total_value.breakdowns[0]
+        : null;
+    const results = bucket && Array.isArray(bucket.results) ? bucket.results : [];
+    return results.map((row) => ({
+      label: Array.isArray(row.dimension_values) ? row.dimension_values.join(" · ") : String(row.dimension_values || ""),
+      value: Number(row.value) || 0
+    }));
+  }
+
+  const settled = await Promise.allSettled(breakdowns.map(requestBreakdown));
+  const out = {};
+  let hasAny = false;
+  let lastError = null;
+
+  breakdowns.forEach((breakdown, index) => {
+    if (settled[index].status === "fulfilled") {
+      out[breakdown] = settled[index].value;
+      if (settled[index].value.length > 0) hasAny = true;
+    } else {
+      out[breakdown] = [];
+      lastError = settled[index].reason;
+    }
+  });
+
+  if (hasAny) {
+    return { available: true, breakdowns: out };
+  }
+
+  const graphError = lastError && lastError.response && lastError.response.data && lastError.response.data.error;
+  const providerMessage = (graphError && graphError.message) || (lastError && lastError.message) || "Không rõ";
+  return {
+    available: false,
+    reason:
+      `Không lấy được nhân khẩu học Instagram: ${providerMessage}. ` +
+      "Cần quyền instagram_manage_insights và tài khoản đủ ~100 người theo dõi."
+  };
+}
+
+// Nhân khẩu học fan Facebook Page — probe các metric còn sống (phần lớn đã bị Meta ngừng ở v25).
+// period=lifetime; giá trị trả về là object map {label: count}. Best-effort, không throw.
+async function getPageAudience({ pageId, pageAccessToken }) {
+  const candidates = [
+    { metric: "page_fans_gender_age", key: "genderAge" },
+    { metric: "page_fans_country", key: "country" },
+    { metric: "page_fans_city", key: "city" },
+    { metric: "page_fans_locale", key: "locale" }
+  ];
+
+  async function requestMetric(metric) {
+    const response = await axios.get(`${config.facebook.graphApiBaseUrl}/${pageId}/insights`, {
+      params: { metric, period: "lifetime", access_token: pageAccessToken }
+    });
+    const data = (response.data && response.data.data) || [];
+    const entry = data[0];
+    const values = entry && Array.isArray(entry.values) ? entry.values : [];
+    const latest = values[values.length - 1];
+    const map = latest && latest.value && typeof latest.value === "object" ? latest.value : {};
+    return Object.entries(map).map(([label, value]) => ({ label, value: Number(value) || 0 }));
+  }
+
+  const settled = await Promise.allSettled(candidates.map((candidate) => requestMetric(candidate.metric)));
+  const out = {};
+  let hasAny = false;
+  let lastError = null;
+
+  candidates.forEach((candidate, index) => {
+    if (settled[index].status === "fulfilled") {
+      out[candidate.key] = settled[index].value;
+      if (settled[index].value.length > 0) hasAny = true;
+    } else {
+      out[candidate.key] = [];
+      lastError = settled[index].reason;
+    }
+  });
+
+  if (hasAny) {
+    return { available: true, breakdowns: out };
+  }
+
+  const graphError = lastError && lastError.response && lastError.response.data && lastError.response.data.error;
+  const providerMessage = (graphError && graphError.message) || (lastError && lastError.message) || "Không rõ";
+  return {
+    available: false,
+    reason: `Facebook không còn cung cấp nhân khẩu học fan qua API ở phiên bản này: ${providerMessage}`
+  };
+}
+
 async function createPagePost(pageId, pageAccessToken, message, options = {}) {
   try {
     const form = new URLSearchParams();
@@ -1291,6 +1400,8 @@ module.exports = {
   getInstagramProfile,
   getAllInstagramMedia,
   getPageInsights,
+  getInstagramAudience,
+  getPageAudience,
   createPagePost,
   createPageContent,
   updatePagePost,

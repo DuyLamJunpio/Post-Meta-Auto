@@ -10,6 +10,7 @@ const warningsEl = document.querySelector("#warnings");
 const reportEl = document.querySelector("#report");
 
 let chartInstances = [];
+let lastAnalytics = null;
 
 // --- Định dạng số ----------------------------------------------------------
 
@@ -530,6 +531,126 @@ function renderInstagram(ig) {
   drawAvgBuckets(hourlyC.canvas, ig.hourly, "#8b5cf6");
 }
 
+// --- Đối tượng khách hàng (audience) ---------------------------------------
+
+function demographicBarCard(title, subtitle, normalized, color) {
+  const c = chartCard(title, subtitle);
+  queueMicrotask(() => {
+    if (normalized && normalized.items && normalized.items.length) {
+      drawBar(c.canvas, normalized.items.map((i) => i.label), normalized.items.map((i) => i.value), color, "Người");
+    } else {
+      c.canvas.replaceWith(emptyChartNote("Không có dữ liệu."));
+    }
+  });
+  return c.holder;
+}
+
+function demographicDoughnutCard(title, subtitle, normalized) {
+  const c = chartCard(title, subtitle);
+  queueMicrotask(() => {
+    if (normalized && normalized.items && normalized.items.length) {
+      drawDoughnut(c.canvas, normalized.items.map((i) => i.label), normalized.items.map((i) => i.value), PALETTE);
+    } else {
+      c.canvas.replaceWith(emptyChartNote("Không có dữ liệu."));
+    }
+  });
+  return c.holder;
+}
+
+function segmentCard(demo) {
+  const children = [cardHeading("Tệp khách hàng (chân dung)", "Suy ra từ nhân khẩu học người theo dõi")];
+  if (demo.summary) {
+    const s = demo.summary;
+    children.push(
+      grid("grid-cols-2 lg:grid-cols-4", [
+        kpiTile("Độ tuổi trội", s.topAge ? `${s.topAge.label}` : "—", s.topAge ? `${fmtNum(s.topAge.percent, 0)}%` : null),
+        kpiTile("Giới tính trội", s.topGender ? s.topGender.label : "—", s.topGender ? `${fmtNum(s.topGender.percent, 0)}%` : null),
+        kpiTile("Quốc gia hàng đầu", s.topCountry ? s.topCountry.label : "—", s.topCountry ? `${fmtNum(s.topCountry.percent, 0)}%` : null),
+        kpiTile("Thành phố hàng đầu", s.topCity ? s.topCity.label : "—", s.topCity ? `${fmtNum(s.topCity.percent, 0)}%` : null)
+      ])
+    );
+  }
+  const list = el("ul", { class: "mt-3 space-y-1.5 text-sm text-slate-600" });
+  for (const seg of demo.segments || []) {
+    list.append(el("li", { class: "flex gap-2" }, [el("span", { class: "text-brand-500", text: "•" }), el("span", { text: seg })]));
+  }
+  if ((demo.segments || []).length) children.push(list);
+  return card(children);
+}
+
+function unavailableCard(title, reason) {
+  return card([
+    cardHeading(title, "Meta không cung cấp / chưa đủ điều kiện"),
+    el("p", { class: "text-sm text-slate-500", text: reason || "Không có dữ liệu." })
+  ]);
+}
+
+// Chân dung suy luận cho FB từ dữ liệu tương tác đã tải (khi Meta khóa nhân khẩu học fan).
+function inferredFacebookCard(fb) {
+  if (!fb) return null;
+  const topType = [...(fb.postTypes || [])].sort((a, b) => b.avgEngagement - a.avgEngagement)[0];
+  const cv = fb.distribution && fb.distribution.engagement ? fb.distribution.engagement.coefficientOfVariation : null;
+  const stability = cv === null ? "—" : cv < 0.5 ? "Ổn định" : cv < 1 ? "Trung bình" : "Thất thường";
+  return card([
+    cardHeading("Chân dung khách hàng (suy luận từ tương tác)", "Meta đã ngừng nhân khẩu học fan Facebook — đây là suy luận hành vi"),
+    grid("grid-cols-1 lg:grid-cols-3", [
+      kpiTile("Khung giờ khách hoạt động", bestTimeText(fb.bestTime), "khi tương tác cao nhất"),
+      kpiTile("Nội dung khách thích nhất", topType ? topType.label : "—", topType ? `TB ${fmtNum(topType.avgEngagement, 1)}/bài` : null),
+      kpiTile("Độ ổn định tương tác", stability, cv === null ? null : `CV ${fmtNum(cv, 2)}`)
+    ])
+  ]);
+}
+
+function renderDemographicsCharts(demo, accent) {
+  return grid("grid-cols-1 lg:grid-cols-2", [
+    demographicBarCard("Độ tuổi", "Số người theo dõi theo nhóm tuổi", demo.age, accent),
+    demographicDoughnutCard("Giới tính", "Tỷ trọng", demo.gender),
+    demographicBarCard("Quốc gia hàng đầu", "Top 8", demo.country, accent),
+    demographicBarCard("Thành phố hàng đầu", "Top 8", demo.city, accent)
+  ]);
+}
+
+function renderAudience(audience) {
+  const container = el("section", { class: "space-y-4" });
+  container.append(sectionHeader("Đối tượng khách hàng", "Nhân khẩu học người theo dõi · tệp khách hàng", "#0ea5e9"));
+
+  // Instagram (nhân khẩu học thật).
+  if (audience.page.hasInstagram) {
+    if (audience.instagram && audience.instagram.available) {
+      container.append(el("h3", { class: "text-sm font-semibold text-pink-600", text: "Instagram" }));
+      container.append(segmentCard(audience.instagram));
+      container.append(renderDemographicsCharts(audience.instagram, IG_COLOR));
+    } else {
+      container.append(unavailableCard("Instagram — nhân khẩu học", audience.instagram && audience.instagram.reason));
+    }
+  }
+
+  // Facebook: chân dung suy luận (luôn có) + demographics nếu Meta còn trả.
+  container.append(el("h3", { class: "mt-2 text-sm font-semibold text-brand-600", text: "Facebook" }));
+  const inferred = inferredFacebookCard(lastAnalytics && lastAnalytics.facebook);
+  if (inferred) container.append(inferred);
+  if (audience.facebook && audience.facebook.available) {
+    container.append(segmentCard(audience.facebook));
+    container.append(renderDemographicsCharts(audience.facebook, BRAND));
+  } else {
+    container.append(unavailableCard("Facebook — nhân khẩu học fan", audience.facebook && audience.facebook.reason));
+  }
+
+  reportEl.append(container);
+}
+
+async function loadAudience(pageId) {
+  const loading = el("p", { class: "text-sm text-slate-400", text: "Đang tải đối tượng khách hàng…" });
+  reportEl.append(loading);
+  try {
+    const data = await fetchJson(`/api/stats/pages/${encodeURIComponent(pageId)}/audience`);
+    loading.remove();
+    renderAudience(data.audience);
+  } catch (error) {
+    loading.textContent = `Không tải được đối tượng khách hàng: ${error.message}`;
+  }
+}
+
 // --- Tải & điều phối -------------------------------------------------------
 
 async function loadPages() {
@@ -574,10 +695,12 @@ async function loadReport(pageId) {
     renderWarnings(analytics.warnings);
     statusEl.textContent = `Báo cáo tạo lúc ${formatTime(analytics.generatedAt)}.`;
 
+    lastAnalytics = analytics;
     renderFacebook(analytics.facebook);
     if (analytics.instagram) {
       renderInstagram(analytics.instagram);
     }
+    loadAudience(pageId);
   } catch (error) {
     statusEl.textContent = `Lỗi: ${error.message}`;
   } finally {

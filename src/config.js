@@ -71,6 +71,8 @@ const config = {
       // mà /me/accounts không trả về vì tài khoản không được gán vai trò trực tiếp trên Page.
       "business_management",
       "instagram_basic",
+      // instagram_manage_insights: đọc nhân khẩu học người theo dõi IG (tuổi/giới tính/thành phố/quốc gia).
+      "instagram_manage_insights",
       "instagram_content_publish"
     ],
     hiddenPageNames: hiddenFacebookPageNames
