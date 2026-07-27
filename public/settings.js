@@ -202,7 +202,150 @@ async function loadGbpLocations() {
   }
 }
 
+// ---------- Kết nối chính: Facebook (Meta) + Notion ----------
+
+const mainConnectionsMount = document.querySelector("#main-connections-mount");
+
+function connectLink(text, href) {
+  return el("a", { class: "rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600", text, attrs: { href } });
+}
+
+function disconnectButton(url) {
+  const btn = el("button", {
+    class: "rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50",
+    text: "Ngắt kết nối",
+    attrs: { type: "button" }
+  });
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    try {
+      await fetchJson(url, { method: "POST" });
+      await renderMainConnections();
+    } catch (error) {
+      btn.disabled = false;
+      window.alert(error.message);
+    }
+  });
+  return btn;
+}
+
+function connectionCard(title, connected, detail, actions) {
+  return el("div", { class: "rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" }, [
+    el("div", { class: "flex items-center justify-between" }, [
+      el("p", { class: "text-sm font-semibold text-slate-900", text: title }),
+      statusPill(true, connected)
+    ]),
+    el("p", { class: "mt-2 text-xs text-slate-500", text: detail }),
+    actions
+  ]);
+}
+
+async function buildFacebookCard() {
+  let status = {};
+  try {
+    const data = await fetchJson("/account/facebook/status");
+    status = (data && data.status) || {};
+  } catch {
+    /* im lặng */
+  }
+  const connected = Boolean(status.connected);
+  const detail = connected
+    ? `Đã kết nối: ${status.fbUserName || "Facebook"} · ${status.pageCount || 0} Page.`
+    : "Kết nối Facebook (Meta) để lấy Page và đăng bài.";
+  const actions = el("div", { class: "mt-4 flex gap-2" });
+  if (connected) {
+    actions.append(connectLink("Kết nối lại", "/auth/facebook"), disconnectButton("/account/facebook/disconnect"));
+  } else {
+    actions.append(connectLink("Kết nối Facebook", "/auth/facebook"));
+  }
+  return connectionCard("Facebook (Meta)", connected, detail, actions);
+}
+
+function fillDbSelect(select, databases, selectedId) {
+  select.replaceChildren(
+    el("option", { text: "-- Chọn --", attrs: { value: "" } }),
+    ...databases.map((db) => el("option", { text: db.title, attrs: { value: db.id } }))
+  );
+  if (selectedId) select.value = selectedId;
+}
+
+async function buildNotionCard() {
+  let status = {};
+  try {
+    const data = await fetchJson("/account/notion/status");
+    status = (data && data.status) || {};
+  } catch {
+    /* im lặng */
+  }
+  const connected = Boolean(status.connected);
+
+  if (!connected) {
+    const actions = el("div", { class: "mt-4 flex gap-2" }, [connectLink("Kết nối Notion", "/account/notion/connect")]);
+    return connectionCard("Notion", false, "Kết nối Notion để đọc lịch nội dung và tự đăng.", actions);
+  }
+
+  const detail = `Đã kết nối: ${status.workspaceName || "workspace"} · ${status.dbSelected ? "đã chọn database" : "chưa chọn database"}.`;
+
+  const contentSelect = el("select", { class: "mt-1 w-full rounded-lg border border-slate-300 px-2 py-2 text-sm" });
+  const brandsSelect = el("select", { class: "mt-1 w-full rounded-lg border border-slate-300 px-2 py-2 text-sm" });
+  const saveStatus = el("p", { class: "text-xs text-slate-500", attrs: { "aria-live": "polite" } });
+
+  try {
+    const dbData = await fetchJson("/account/notion/databases");
+    const databases = (dbData && dbData.databases) || [];
+    fillDbSelect(contentSelect, databases, status.contentDataSourceId);
+    fillDbSelect(brandsSelect, databases, status.brandsDataSourceId);
+  } catch (error) {
+    saveStatus.textContent = `Không tải được danh sách database: ${error.message}`;
+  }
+
+  const saveBtn = el("button", {
+    class: "rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700",
+    text: "Lưu lựa chọn",
+    attrs: { type: "button" }
+  });
+  saveBtn.addEventListener("click", async () => {
+    saveStatus.textContent = "Đang lưu...";
+    try {
+      const data = await fetchJson("/account/notion/databases", {
+        method: "POST",
+        body: JSON.stringify({ contentDataSourceId: contentSelect.value, brandsDataSourceId: brandsSelect.value })
+      });
+      saveStatus.textContent = data.message || "Đã lưu.";
+    } catch (error) {
+      saveStatus.textContent = error.message;
+    }
+  });
+
+  const picker = el("div", { class: "mt-4 space-y-3 border-t border-slate-100 pt-3" }, [
+    el("label", { class: "block" }, [el("span", { class: "text-xs font-medium text-slate-700", text: "Content database" }), contentSelect]),
+    el("label", { class: "block" }, [el("span", { class: "text-xs font-medium text-slate-700", text: "Brands database" }), brandsSelect]),
+    el("div", { class: "flex gap-2" }, [saveBtn, connectLink("Kết nối lại", "/account/notion/connect"), disconnectButton("/account/notion/disconnect")]),
+    saveStatus
+  ]);
+
+  return el("div", { class: "rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" }, [
+    el("div", { class: "flex items-center justify-between" }, [
+      el("p", { class: "text-sm font-semibold text-slate-900", text: "Notion" }),
+      statusPill(true, true)
+    ]),
+    el("p", { class: "mt-2 text-xs text-slate-500", text: detail }),
+    picker
+  ]);
+}
+
+async function renderMainConnections() {
+  mainConnectionsMount.replaceChildren(el("p", { class: "text-sm text-slate-400", text: "Đang tải kết nối..." }));
+  try {
+    const [fbCard, notionCard] = await Promise.all([buildFacebookCard(), buildNotionCard()]);
+    mainConnectionsMount.replaceChildren(fbCard, notionCard);
+  } catch (error) {
+    mainConnectionsMount.replaceChildren(el("p", { class: "text-sm text-rose-600", text: error.message }));
+  }
+}
+
 gbpLocationsButton.addEventListener("click", loadGbpLocations);
 
+renderMainConnections();
 loadChannels();
 loadChannelIds();
