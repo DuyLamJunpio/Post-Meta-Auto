@@ -69,6 +69,28 @@ async function buildTenantContext(userId) {
   return { userId: String(userId), pages, notionContext };
 }
 
+// Dựng RIÊNG Notion context của 1 user (không cần Facebook) — cho các API đọc/ghi task theo tài khoản.
+// Trả null nếu user chưa kết nối Notion / chưa chọn đủ 2 data source (KHÔNG rơi về .env admin).
+async function getUserNotionContext(userId) {
+  const notionConn = await notionOauthService.getConnection(userId);
+
+  if (
+    !notionConn ||
+    !notionConn.accessToken ||
+    !notionConn.contentDataSourceId ||
+    !notionConn.brandsDataSourceId
+  ) {
+    return null;
+  }
+
+  return notionService.buildNotionContext({
+    token: notionConn.accessToken,
+    contentDataSourceId: notionConn.contentDataSourceId,
+    brandsDataSourceId: notionConn.brandsDataSourceId,
+    userId
+  });
+}
+
 // Danh sách tenant sẵn sàng đăng (đã dựng đầy đủ context). Rỗng nếu Postgres chưa cấu hình.
 async function listPublishableTenants() {
   const userIds = await listPublishableUserIds();
@@ -92,5 +114,6 @@ module.exports = {
   listNotionConnectedUserIds,
   listPublishableUserIds,
   buildTenantContext,
+  getUserNotionContext,
   listPublishableTenants
 };

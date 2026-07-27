@@ -6,17 +6,65 @@ const googleDriveService = require("../services/google-drive.service");
 const instagramService = require("../services/instagram.service");
 const gbpService = require("../services/gbp.service");
 const tiktokService = require("../services/tiktok.service");
+const tenantRunner = require("../services/tenant-runner.service");
 
 const router = express.Router();
 
+// Phân giải Notion context theo TÀI KHOẢN đang đăng nhập:
+// - undefined: luồng admin cũ (session không có userId) -> notion.service tự dùng Notion .env.
+// - null: tài khoản CÓ nhưng CHƯA kết nối Notion / chưa chọn database -> KHÔNG dùng .env (chặn/rỗng).
+// - object: Notion context riêng của user.
+async function resolveSessionNotionContext(req) {
+  if (!req.session.userId) {
+    return undefined;
+  }
+  return tenantRunner.getUserNotionContext(req.session.userId);
+}
+
+function sessionAuthOptions(req) {
+  return {
+    driveAuth: googleDriveService.getSessionAuth(req.session),
+    instagramAuth: instagramService.getSessionAuth(req.session),
+    gbpAuth: gbpService.getSessionAuth(req.session),
+    tiktokAuth: tiktokService.getSessionAuth(req.session)
+  };
+}
+
+// Chặn hành động khi tài khoản chưa kết nối Notion (tránh thao tác nhầm lên Notion admin .env).
+// Trả true nếu đã gửi response chặn (caller phải return ngay).
+function blockIfNotConnected(res, notionContext) {
+  if (notionContext === null) {
+    res.status(400).json({
+      success: false,
+      message: "Bạn chưa kết nối Notion hoặc chưa chọn database. Vào trang Tài khoản để kết nối trước."
+    });
+    return true;
+  }
+  return false;
+}
+
 router.get("/notion/tasks", async (req, res, next) => {
   try {
+    const notionContext = await resolveSessionNotionContext(req);
+
+    // Tài khoản chưa kết nối Notion -> trả RỖNG, không lộ task của Notion .env (admin).
+    if (notionContext === null) {
+      return res.json({
+        success: true,
+        tasks: [],
+        totalCount: 0,
+        readyCount: 0,
+        scheduleReadyCount: 0,
+        overdueCount: 0,
+        notConnected: true,
+        message: "Bạn chưa kết nối Notion hoặc chưa chọn database. Vào trang Tài khoản để kết nối."
+      });
+    }
+
     const data = await notionService.listTasksForSession(req.session.facebookUser.pages, {
       pageId: req.query.pageId,
-      driveAuth: googleDriveService.getSessionAuth(req.session),
-      instagramAuth: instagramService.getSessionAuth(req.session),
-      gbpAuth: gbpService.getSessionAuth(req.session),
-      tiktokAuth: tiktokService.getSessionAuth(req.session)
+      notionContext,
+      ...sessionAuthOptions(req)
     });
 
     res.json({
@@ -30,7 +78,12 @@ router.get("/notion/tasks", async (req, res, next) => {
 
 router.post("/notion/sync-instagram-ids", async (req, res, next) => {
   try {
-    const result = await notionService.syncInstagramAccountIds(req.session.facebookUser.pages);
+    const notionContext = await resolveSessionNotionContext(req);
+    if (blockIfNotConnected(res, notionContext)) {
+      return;
+    }
+
+    const result = await notionService.syncInstagramAccountIds(req.session.facebookUser.pages, { notionContext });
 
     res.json({
       success: true,
@@ -78,7 +131,13 @@ router.post("/notion/import/create", async (req, res, next) => {
 
 router.get("/notion/channel-toggles", async (req, res, next) => {
   try {
-    const brands = await notionService.listBrandChannelToggles(req.session.facebookUser.pages);
+    const notionContext = await resolveSessionNotionContext(req);
+
+    if (notionContext === null) {
+      return res.json({ success: true, brands: [], notConnected: true });
+    }
+
+    const brands = await notionService.listBrandChannelToggles(req.session.facebookUser.pages, { notionContext });
     res.json({ success: true, brands });
   } catch (error) {
     next(error);
@@ -105,22 +164,14 @@ router.post("/notion/channel-toggles", (req, res, next) => {
 
 router.post("/notion/publish-due", async (req, res, next) => {
   try {
-    const driveAuth = googleDriveService.getSessionAuth(req.session);
-    const instagramAuth = instagramService.getSessionAuth(req.session);
-    const gbpAuth = gbpService.getSessionAuth(req.session);
-    const tiktokAuth = tiktokService.getSessionAuth(req.session);
-    const scheduleResult = await notionService.scheduleReadyTasks(req.session.facebookUser.pages, {
-      driveAuth,
-      instagramAuth,
-      gbpAuth,
-      tiktokAuth
-    });
-    const result = await notionService.publishDueTasks(req.session.facebookUser.pages, {
-      driveAuth,
-      instagramAuth,
-      gbpAuth,
-      tiktokAuth
-    });
+    const notionContext = await resolveSessionNotionContext(req);
+    if (blockIfNotConnected(res, notionContext)) {
+      return;
+    }
+
+    const options = { notionContext, ...sessionAuthOptions(req) };
+    const scheduleResult = await notionService.scheduleReadyTasks(req.session.facebookUser.pages, options);
+    const result = await notionService.publishDueTasks(req.session.facebookUser.pages, options);
 
     res.json({
       success: true,
@@ -135,23 +186,17 @@ router.post("/notion/publish-due", async (req, res, next) => {
 
 router.post("/notion/publish-overdue", async (req, res, next) => {
   try {
-    const driveAuth = googleDriveService.getSessionAuth(req.session);
-    const instagramAuth = instagramService.getSessionAuth(req.session);
-    const gbpAuth = gbpService.getSessionAuth(req.session);
-    const tiktokAuth = tiktokService.getSessionAuth(req.session);
+    const notionContext = await resolveSessionNotionContext(req);
+    if (blockIfNotConnected(res, notionContext)) {
+      return;
+    }
+
+    const options = { notionContext, ...sessionAuthOptions(req) };
     const scheduleResult = await notionService.scheduleReadyTasks(req.session.facebookUser.pages, {
-      driveAuth,
-      instagramAuth,
-      gbpAuth,
-      tiktokAuth,
+      ...options,
       onlyOverdue: true
     });
-    const result = await notionService.publishOverdueTasks(req.session.facebookUser.pages, {
-      driveAuth,
-      instagramAuth,
-      gbpAuth,
-      tiktokAuth
-    });
+    const result = await notionService.publishOverdueTasks(req.session.facebookUser.pages, options);
 
     res.json({
       success: true,
@@ -166,12 +211,15 @@ router.post("/notion/publish-overdue", async (req, res, next) => {
 
 router.post("/notion/retry-failed", async (req, res, next) => {
   try {
+    const notionContext = await resolveSessionNotionContext(req);
+    if (blockIfNotConnected(res, notionContext)) {
+      return;
+    }
+
     const result = await notionService.prepareFailedTasksForRetry(req.session.facebookUser.pages, {
       pageId: req.query.pageId,
-      driveAuth: googleDriveService.getSessionAuth(req.session),
-      instagramAuth: instagramService.getSessionAuth(req.session),
-      gbpAuth: gbpService.getSessionAuth(req.session),
-      tiktokAuth: tiktokService.getSessionAuth(req.session)
+      notionContext,
+      ...sessionAuthOptions(req)
     });
 
     res.json({
@@ -186,11 +234,14 @@ router.post("/notion/retry-failed", async (req, res, next) => {
 
 router.post("/notion/tasks/:taskId/publish", async (req, res, next) => {
   try {
+    const notionContext = await resolveSessionNotionContext(req);
+    if (blockIfNotConnected(res, notionContext)) {
+      return;
+    }
+
     const result = await notionService.publishSingleTask(req.params.taskId, req.session.facebookUser.pages, {
-      driveAuth: googleDriveService.getSessionAuth(req.session),
-      instagramAuth: instagramService.getSessionAuth(req.session),
-      gbpAuth: gbpService.getSessionAuth(req.session),
-      tiktokAuth: tiktokService.getSessionAuth(req.session)
+      notionContext,
+      ...sessionAuthOptions(req)
     });
 
     res.json({
