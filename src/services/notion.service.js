@@ -2129,22 +2129,15 @@ async function publishTasksWithGuard(readyTasks, totalResolved, options) {
 
   const threshold = config.autoPublish.anomalyThreshold;
 
+  // Nhiều bài đến hạn cùng lúc: KHÔNG còn PAUSE cả vòng lặp (gây kẹt, phải bật lại thủ công).
+  // Thay vào đó xử lý THEO LÔ: mỗi lượt đăng tối đa maxPublishPerRun, phần còn lại tự hoãn
+  // sang lượt sau; per-page cooldown vẫn giãn cách giữa 2 bài cùng Page. Vòng lặp sẽ tự rút
+  // cạn tồn đọng mà không cần người dùng động tay. (Chặn "xả bài" giữ ở maxPerRun + cooldown.)
   if (readyTasks.length > threshold) {
-    const reason = `Bất thường: ${readyTasks.length} tác vụ đến hạn cùng lúc (ngưỡng ${threshold}). Đã tạm dừng tự đăng để bảo vệ page.`;
-    publishGuardService.pause(reason);
-
-    return {
-      attemptedCount: 0,
-      successCount: 0,
-      failureCount: 0,
-      skippedCount: totalResolved,
-      paused: true,
-      anomaly: true,
-      anomalyReason: reason,
-      dueCount: readyTasks.length,
-      guardStatus: publishGuardService.getStatus(),
-      results: []
-    };
+    console.warn(
+      "[Notion Auto Publish]",
+      `Tồn đọng lớn: ${readyTasks.length} tác vụ đến hạn (ngưỡng cảnh báo ${threshold}). Xử lý theo lô ${config.autoPublish.maxPublishPerRun} bài/lượt, phần còn lại hoãn sang lượt sau.`
+    );
   }
 
   const maxPerRun = config.autoPublish.maxPublishPerRun;
@@ -2196,6 +2189,9 @@ async function publishTasksWithGuard(readyTasks, totalResolved, options) {
     successCount: results.filter((result) => result.success).length,
     failureCount: results.filter((result) => !result.success && !result.skipped).length,
     skippedCount: totalResolved - readyTasks.length,
+    // Hoãn sang lượt sau (chạm trần maxPerRun) / đang nghỉ cooldown -> vòng lặp tự xử lý tiếp.
+    deferredCount: results.filter((result) => result.deferred).length,
+    cooldownCount: results.filter((result) => result.cooldown).length,
     publishedCount,
     results
   };

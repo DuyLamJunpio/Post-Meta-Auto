@@ -335,10 +335,13 @@ function wireBulk(id, url, label) {
       const data = await fetchJson(url, { method: "POST" });
       const parts = [];
       if (data.schedule) parts.push(`${data.schedule.successCount} vào lịch`);
-      if (typeof data.successCount === "number") parts.push(`${data.successCount} thành công`);
-      if (typeof data.failureCount === "number") parts.push(`${data.failureCount} lỗi`);
-      if (typeof data.skippedCount === "number") parts.push(`${data.skippedCount} bỏ qua`);
-      actStatusEl.textContent = parts.length ? parts.join(" · ") : data.message || "Hoàn tất.";
+      if (data.successCount) parts.push(`${data.successCount} đã đăng`);
+      if (data.failureCount) parts.push(`${data.failureCount} lỗi`);
+      const pending = (data.deferredCount || 0) + (data.cooldownCount || 0);
+      if (pending) parts.push(`${pending} hoãn lượt sau`);
+      let msg = parts.length ? parts.join(" · ") : data.message || "Hoàn tất.";
+      if (pending) msg += " — vòng lặp sẽ tự đăng tiếp theo lô, không cần bấm lại.";
+      actStatusEl.textContent = msg;
       await loadTasks();
     } catch (error) {
       actStatusEl.textContent = error.message;
@@ -350,7 +353,7 @@ function wireBulk(id, url, label) {
 
 function disableBulk(v) {
   document
-    .querySelectorAll("#act-publish-due, #act-publish-overdue, #act-retry-failed, #act-refresh, #act-publish-all, #act-stagger")
+    .querySelectorAll("#act-publish-due, #act-publish-overdue, #act-retry-failed, #act-refresh, #act-stagger")
     .forEach((b) => (b.disabled = v));
 }
 
@@ -358,40 +361,6 @@ function disableBulk(v) {
 function isBulkCandidate(task) {
   if (task.isPublished || !task.page || !task.page.canCreateContent) return false;
   return task.readyToPublish || task.readyToSchedule || displayStage(task) === "scheduled" || task.overdue;
-}
-
-// Đăng NGAY toàn bộ task sẵn sàng, lần lượt từng cái (đi qua endpoint đăng đơn -> bỏ qua phanh an toàn).
-async function publishAllReady() {
-  const targets = allTasks.filter(isBulkCandidate);
-  if (targets.length === 0) {
-    actStatusEl.textContent = "Không có task nào sẵn sàng để đăng.";
-    return;
-  }
-  if (!window.confirm(`Đăng NGAY ${targets.length} bài lên Page/Instagram thật?\nHành động này bỏ qua phanh an toàn (trần/cooldown) và không thể hoàn tác.`)) {
-    return;
-  }
-  disableBulk(true);
-  let ok = 0;
-  let fail = 0;
-  for (let i = 0; i < targets.length; i++) {
-    const t = targets[i];
-    actStatusEl.textContent = `Đang đăng ${i + 1}/${targets.length}: ${t.title || "(không tên)"}...`;
-    try {
-      if (!t.readyToPublish) {
-        await fetchJson(`/api/notion/tasks/${encodeURIComponent(t.id)}`, {
-          method: "PATCH",
-          body: JSON.stringify({ publishAt: new Date().toISOString(), resetSchedule: true })
-        });
-      }
-      await fetchJson(`/api/notion/tasks/${encodeURIComponent(t.id)}/publish`, { method: "POST" });
-      ok++;
-    } catch {
-      fail++;
-    }
-  }
-  actStatusEl.textContent = `Đăng xong: ${ok} thành công · ${fail} lỗi.`;
-  disableBulk(false);
-  await loadTasks();
 }
 
 // Giãn lịch: rải Publish At cách đều nhau (mặc định 11 phút) để vòng lặp tự đăng lần lượt.
@@ -474,7 +443,6 @@ document.querySelector("#act-refresh").addEventListener("click", () => {
   loadGuardStatus();
   loadTasks();
 });
-document.querySelector("#act-publish-all").addEventListener("click", publishAllReady);
 document.querySelector("#act-stagger").addEventListener("click", staggerSchedule);
 wireBulk("#act-publish-due", "/api/notion/publish-due", "xử lý tác vụ đến hạn");
 wireBulk("#act-publish-overdue", "/api/notion/publish-overdue", "đăng lại bài quá hạn");
