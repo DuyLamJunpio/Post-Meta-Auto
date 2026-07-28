@@ -50,6 +50,9 @@ const publicBaseUrl = String(process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, 
 const config = {
   port: Number(process.env.PORT) || 3000,
   sessionSecret: process.env.SESSION_SECRET,
+  // Host công khai của app (Render). Dùng dựng redirect_uri OAuth Notion + link lead.
+  // Trống => fallback localhost (chỉ hợp cho chạy máy local).
+  publicBaseUrl,
   facebook: {
     appId: process.env.FACEBOOK_APP_ID,
     appSecret: process.env.FACEBOOK_APP_SECRET,
