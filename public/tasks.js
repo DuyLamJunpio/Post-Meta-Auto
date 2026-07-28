@@ -348,7 +348,134 @@ function wireBulk(id, url, label) {
   });
 }
 
-document.querySelector("#act-refresh").addEventListener("click", () => loadTasks());
+function disableBulk(v) {
+  document
+    .querySelectorAll("#act-publish-due, #act-publish-overdue, #act-retry-failed, #act-refresh, #act-publish-all, #act-stagger")
+    .forEach((b) => (b.disabled = v));
+}
+
+// Ứng viên đăng hàng loạt: task đã đủ nội dung nhưng còn kẹt vì lịch/giờ (KHÔNG gồm task bị chặn thật sự).
+function isBulkCandidate(task) {
+  if (task.isPublished || !task.page || !task.page.canCreateContent) return false;
+  return task.readyToPublish || task.readyToSchedule || displayStage(task) === "scheduled" || task.overdue;
+}
+
+// Đăng NGAY toàn bộ task sẵn sàng, lần lượt từng cái (đi qua endpoint đăng đơn -> bỏ qua phanh an toàn).
+async function publishAllReady() {
+  const targets = allTasks.filter(isBulkCandidate);
+  if (targets.length === 0) {
+    actStatusEl.textContent = "Không có task nào sẵn sàng để đăng.";
+    return;
+  }
+  if (!window.confirm(`Đăng NGAY ${targets.length} bài lên Page/Instagram thật?\nHành động này bỏ qua phanh an toàn (trần/cooldown) và không thể hoàn tác.`)) {
+    return;
+  }
+  disableBulk(true);
+  let ok = 0;
+  let fail = 0;
+  for (let i = 0; i < targets.length; i++) {
+    const t = targets[i];
+    actStatusEl.textContent = `Đang đăng ${i + 1}/${targets.length}: ${t.title || "(không tên)"}...`;
+    try {
+      if (!t.readyToPublish) {
+        await fetchJson(`/api/notion/tasks/${encodeURIComponent(t.id)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ publishAt: new Date().toISOString(), resetSchedule: true })
+        });
+      }
+      await fetchJson(`/api/notion/tasks/${encodeURIComponent(t.id)}/publish`, { method: "POST" });
+      ok++;
+    } catch {
+      fail++;
+    }
+  }
+  actStatusEl.textContent = `Đăng xong: ${ok} thành công · ${fail} lỗi.`;
+  disableBulk(false);
+  await loadTasks();
+}
+
+// Giãn lịch: rải Publish At cách đều nhau (mặc định 11 phút) để vòng lặp tự đăng lần lượt.
+async function staggerSchedule() {
+  const targets = allTasks.filter(isBulkCandidate);
+  if (targets.length === 0) {
+    actStatusEl.textContent = "Không có task nào để giãn lịch.";
+    return;
+  }
+  const input = window.prompt(
+    `Giãn lịch ${targets.length} task: mỗi bài cách nhau bao nhiêu phút?\n(Khuyến nghị ≥ 10 phút để tránh phanh an toàn của page.)`,
+    "11"
+  );
+  if (input === null) return;
+  const spacing = Math.max(1, Number(input) || 11);
+  disableBulk(true);
+  const base = Date.now();
+  let ok = 0;
+  let fail = 0;
+  for (let i = 0; i < targets.length; i++) {
+    const when = new Date(base + i * spacing * 60000).toISOString();
+    actStatusEl.textContent = `Đang đặt lịch ${i + 1}/${targets.length}...`;
+    try {
+      await fetchJson(`/api/notion/tasks/${encodeURIComponent(targets[i].id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ publishAt: when, resetSchedule: true })
+      });
+      ok++;
+    } catch {
+      fail++;
+    }
+  }
+  await resumeGuardIfPaused();
+  actStatusEl.textContent = `Đã giãn lịch ${ok} task (mỗi ${spacing} phút)${fail ? ` · ${fail} lỗi` : ""}. Vòng lặp sẽ tự đăng lần lượt.`;
+  disableBulk(false);
+  await loadTasks();
+}
+
+// ---- Phanh an toàn (guard) ----
+async function loadGuardStatus() {
+  const banner = document.querySelector("#guard-banner");
+  try {
+    const data = await fetchJson("/api/auto-publish/status");
+    const s = data.status || {};
+    if (s.paused) {
+      document.querySelector("#guard-reason").textContent = s.pausedReason || "Tự đăng đang tạm dừng.";
+      banner.classList.remove("hidden");
+      banner.classList.add("flex");
+    } else {
+      banner.classList.add("hidden");
+      banner.classList.remove("flex");
+    }
+  } catch {
+    banner.classList.add("hidden");
+  }
+}
+
+async function resumeGuardIfPaused() {
+  try {
+    const data = await fetchJson("/api/auto-publish/status");
+    if (data.status && data.status.paused) {
+      await fetchJson("/api/auto-publish/resume", { method: "POST" });
+    }
+  } catch {
+    /* bỏ qua */
+  }
+}
+
+document.querySelector("#guard-resume").addEventListener("click", async () => {
+  try {
+    await fetchJson("/api/auto-publish/resume", { method: "POST" });
+    actStatusEl.textContent = "Đã bật lại tự đăng.";
+    await loadGuardStatus();
+  } catch (error) {
+    actStatusEl.textContent = error.message;
+  }
+});
+
+document.querySelector("#act-refresh").addEventListener("click", () => {
+  loadGuardStatus();
+  loadTasks();
+});
+document.querySelector("#act-publish-all").addEventListener("click", publishAllReady);
+document.querySelector("#act-stagger").addEventListener("click", staggerSchedule);
 wireBulk("#act-publish-due", "/api/notion/publish-due", "xử lý tác vụ đến hạn");
 wireBulk("#act-publish-overdue", "/api/notion/publish-overdue", "đăng lại bài quá hạn");
 wireBulk("#act-retry-failed", "/api/notion/retry-failed", "chuẩn bị task lỗi");
@@ -357,4 +484,5 @@ searchInput.addEventListener("input", render);
 pageFilter.addEventListener("change", render);
 
 loadBrands();
+loadGuardStatus();
 loadTasks();
