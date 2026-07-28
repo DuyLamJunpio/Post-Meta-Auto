@@ -9,6 +9,7 @@ const publishJobsService = require("./publish-jobs.service");
 const publishGuardService = require("./publish-guard.service");
 const channelToggleService = require("./channel-toggle.service");
 const mediaProxyService = require("./media-proxy.service");
+const notifier = require("./notifier");
 const {
   CHANNELS,
   CHANNEL_LABELS,
@@ -1920,6 +1921,45 @@ function snapshotExpectedTargets(resolved, notionContext) {
   }
 }
 
+// Link đăng của 1 kênh (permalink; FB fallback theo postId nếu chưa có permalink).
+function channelPermalink(result) {
+  if (result.permalinkUrl) {
+    return result.permalinkUrl;
+  }
+  if (result.channel === CHANNELS.FACEBOOK && result.postId) {
+    return `https://www.facebook.com/${result.postId}`;
+  }
+  return "";
+}
+
+// Báo Telegram khi đăng thành công, kèm link từng kênh. Gửi mức "important" để luôn tới
+// (mặc định notifyLevel=important). Fire-and-forget: cảnh báo không được chặn/hỏng luồng đăng.
+function notifyPublishSuccess(task, page, brand, channelResults) {
+  if (!notifier.isAnyEnabled()) {
+    return;
+  }
+
+  const linkLines = (channelResults || []).map((result) => {
+    const label = CHANNEL_LABELS[result.channel] || result.channel;
+    const link = channelPermalink(result);
+    return link ? `${label}: ${link}` : `${label}: (đã đăng)`;
+  });
+
+  notifier
+    .notify({
+      level: "important",
+      linkPreview: true,
+      title: "✅ Đã đăng bài thành công",
+      lines: [
+        `Bài: ${task.title || "(không tiêu đề)"}`,
+        page ? `Page: ${page.name}` : brand ? `Brand: ${brand.name}` : null,
+        "",
+        ...linkLines
+      ]
+    })
+    .catch(() => {});
+}
+
 async function publishResolvedTask(resolved, options = {}) {
   const { task, page, readiness } = resolved;
   const notionContext = resolveNotionContext(options);
@@ -2068,6 +2108,8 @@ async function publishResolvedTask(resolved, options = {}) {
   try {
     const permalinkUrl = await updateTaskPublishSuccess(task, facebookResult, channelResults, startedAt, notionContext);
 
+    notifyPublishSuccess(task, page, resolved.brand, channelResults);
+
     return {
       success: true,
       taskId: task.id,
@@ -2081,6 +2123,9 @@ async function publishResolvedTask(resolved, options = {}) {
     };
   } catch (error) {
     logNotionError("update_task_success", error);
+
+    // Bài ĐÃ lên kênh (chỉ lỗi ghi Notion) -> vẫn báo thành công kèm link để không bỏ sót.
+    notifyPublishSuccess(task, page, resolved.brand, channelResults);
 
     return {
       success: false,
