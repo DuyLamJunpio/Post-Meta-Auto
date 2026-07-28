@@ -2445,6 +2445,141 @@ function setBrandChannelToggle(brandId, channel, enabled) {
   return channelToggleService.setChannelEnabled(brandId, channel, enabled);
 }
 
+// Giá trị select hợp lệ (khớp option trong Notion) để chặn ghi giá trị lạ gây lỗi API.
+const ALLOWED_APPROVAL = ["Đã duyệt", "Chờ duyệt", "Cần sửa", "Từ chối", "Nháp"];
+const ALLOWED_WORKFLOW = [
+  "Hoàn thành nội dung",
+  "Lên ý tưởng",
+  "Viết caption",
+  "Thiết kế/Visual",
+  "Chờ duyệt nội bộ",
+  "Chờ media cuối",
+  "Sẵn sàng lên lịch"
+];
+const ALLOWED_POST_TYPE = ["Post", "Reel"];
+
+// Sửa nhanh task từ UI để đủ điều kiện đăng. `patch` chỉ gồm field người dùng đổi
+// -> chỉ ghi đúng các property đó (immutable với các field khác). Trả về task đã re-resolve
+// kèm readiness mới để UI cập nhật ngay.
+async function updateTaskFields(taskId, sessionPages, patch = {}, options = {}) {
+  const notionContext = resolveNotionContext(options);
+
+  if (!taskId) {
+    throw createPublicError(400, "Thiếu taskId.");
+  }
+
+  const properties = {};
+
+  if (typeof patch.caption === "string") {
+    properties[CONTENT_PROPS.caption] = richTextContent(patch.caption);
+  }
+
+  if (typeof patch.mediaUrls === "string") {
+    properties[CONTENT_PROPS.mediaUrls] = richTextContent(patch.mediaUrls);
+  }
+
+  if (patch.approval !== undefined) {
+    if (!ALLOWED_APPROVAL.includes(patch.approval)) {
+      throw createPublicError(400, "Giá trị Approval Status không hợp lệ.");
+    }
+    properties[CONTENT_PROPS.approvalStatus] = selectContent(patch.approval);
+  }
+
+  if (patch.workflow !== undefined) {
+    if (!ALLOWED_WORKFLOW.includes(patch.workflow)) {
+      throw createPublicError(400, "Giá trị Content Workflow không hợp lệ.");
+    }
+    properties[CONTENT_PROPS.contentWorkflow] = selectContent(patch.workflow);
+  }
+
+  if (patch.postType !== undefined) {
+    if (!ALLOWED_POST_TYPE.includes(patch.postType)) {
+      throw createPublicError(400, "Giá trị Post Type không hợp lệ.");
+    }
+    properties[CONTENT_PROPS.postType] = selectContent(patch.postType);
+  }
+
+  if (patch.autoPublish !== undefined) {
+    properties[CONTENT_PROPS.autoPublish] = { checkbox: Boolean(patch.autoPublish) };
+  }
+
+  if (patch.channels !== undefined) {
+    const keys = Array.isArray(patch.channels) ? patch.channels : [];
+    const invalid = keys.filter((key) => !Object.values(CHANNELS).includes(key));
+    if (invalid.length > 0) {
+      throw createPublicError(400, `Kênh không hợp lệ: ${invalid.join(", ")}.`);
+    }
+    properties[CONTENT_PROPS.channel] = {
+      multi_select: keys.map((key) => ({ name: CHANNEL_LABELS[key] }))
+    };
+  }
+
+  if (patch.primaryBrandId !== undefined) {
+    properties[CONTENT_PROPS.primaryBrand] = {
+      relation: patch.primaryBrandId ? [{ id: String(patch.primaryBrandId) }] : []
+    };
+  }
+
+  if (patch.publishAt !== undefined) {
+    if (patch.publishAt) {
+      const when = new Date(patch.publishAt);
+      if (Number.isNaN(when.getTime())) {
+        throw createPublicError(400, "Publish At không hợp lệ.");
+      }
+      properties[CONTENT_PROPS.publishAt] = { date: { start: when.toISOString() } };
+    } else {
+      properties[CONTENT_PROPS.publishAt] = { date: null };
+    }
+  }
+
+  // Gỡ bỏ toàn bộ tính năng FB nâng cao đang bị chặn tự đăng, để task đủ điều kiện trong 1 nút.
+  if (patch.clearFbExtras) {
+    properties[CONTENT_PROPS.feelingActivity] = richTextContent("");
+    properties[CONTENT_PROPS.messengerCta] = { checkbox: false };
+    properties[CONTENT_PROPS.callPhoneNumber] = { phone_number: null };
+    properties[CONTENT_PROPS.shareToStory] = { checkbox: false };
+    properties[CONTENT_PROPS.tagPeopleUrls] = richTextContent("");
+    properties[CONTENT_PROPS.locationName] = richTextContent("");
+    properties[CONTENT_PROPS.locationFacebookUrl] = { url: null };
+    properties[CONTENT_PROPS.collaboratorBrand] = { relation: [] };
+  }
+
+  // Đưa task về "Chưa lên lịch" + reset retry/lỗi (dùng cho: dời lịch bài quá hạn, mở khóa đăng lại).
+  if (patch.resetSchedule) {
+    properties[CONTENT_PROPS.publishStatus] = selectContent(UNSCHEDULED_STATUS);
+    properties[CONTENT_PROPS.retryCount] = { number: 0 };
+    properties[CONTENT_PROPS.errorMessage] = richTextContent("");
+  }
+
+  if (Object.keys(properties).length === 0) {
+    throw createPublicError(400, "Không có thay đổi nào để lưu.");
+  }
+
+  try {
+    await notionContext.client.pages.update({ page_id: taskId, properties });
+  } catch (error) {
+    logNotionError("update_task_fields", error);
+    throw createPublicError(502, "Không cập nhật được task trên Notion.", {
+      service: "notion",
+      context: "update_task_fields",
+      status: error.status,
+      providerMessage: error.body && error.body.message ? error.body.message : error.message
+    });
+  }
+
+  // Re-resolve để trả readiness mới cho UI (một số lỗi map brand chỉ lộ sau khi đổi Primary Brand).
+  const resolvedTasks = await getResolvedTasks(sessionPages, {
+    notionContext,
+    driveAuth: options.driveAuth,
+    instagramAuth: options.instagramAuth,
+    gbpAuth: options.gbpAuth,
+    tiktokAuth: options.tiktokAuth
+  });
+  const resolved = resolvedTasks.find((item) => item.task.id === taskId);
+
+  return resolved ? serializeResolvedTask(resolved) : null;
+}
+
 module.exports = {
   buildNotionContext,
   syncInstagramAccountIds,
@@ -2458,5 +2593,6 @@ module.exports = {
   publishDueTasks,
   publishOverdueTasks,
   reconcileStuckPublishingTasks,
-  publishSingleTask
+  publishSingleTask,
+  updateTaskFields
 };

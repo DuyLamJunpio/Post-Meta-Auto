@@ -232,6 +232,44 @@ router.post("/notion/retry-failed", async (req, res, next) => {
   }
 });
 
+// Danh sách brand rút gọn cho form Sửa nhanh (chọn Primary Brand).
+router.get("/notion/brands", async (req, res, next) => {
+  try {
+    const notionContext = await resolveSessionNotionContext(req);
+
+    if (notionContext === null) {
+      return res.json({ success: true, brands: [], notConnected: true });
+    }
+
+    const brands = await notionService.listBrands({ notionContext });
+    res.json({ success: true, brands });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Sửa nhanh field của 1 task để đủ điều kiện đăng (approval/workflow/channel/publishAt/media...).
+router.patch("/notion/tasks/:taskId", async (req, res, next) => {
+  try {
+    const notionContext = await resolveSessionNotionContext(req);
+    if (blockIfNotConnected(res, notionContext)) {
+      return;
+    }
+
+    const patch = req.body && typeof req.body === "object" ? req.body : {};
+    const task = await notionService.updateTaskFields(
+      req.params.taskId,
+      req.session.facebookUser.pages,
+      patch,
+      { notionContext, ...sessionAuthOptions(req) }
+    );
+
+    res.json({ success: true, message: "Đã lưu thay đổi task.", task });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.post("/notion/tasks/:taskId/publish", async (req, res, next) => {
   try {
     const notionContext = await resolveSessionNotionContext(req);

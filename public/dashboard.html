@@ -25,21 +25,21 @@
             <h1 class="text-lg font-bold text-slate-900">Tổng quan</h1>
             <p id="overview-user" class="text-xs text-slate-500">Đang tải tài khoản...</p>
           </div>
-          <div class="hidden gap-2 sm:flex">
-            <button id="publish-due" type="button" class="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600">Xử lý đến hạn</button>
-            <button id="publish-overdue" type="button" class="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">Đăng lại quá hạn</button>
-            <button id="retry-failed" type="button" class="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">Chuẩn bị lỗi</button>
-          </div>
+          <a href="/tasks.html" class="rounded-lg bg-brand-500 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-600">Mở Tác vụ →</a>
         </header>
 
         <main class="mx-auto w-full max-w-7xl flex-1 space-y-6 p-4 lg:p-8">
           <p id="overview-status" class="text-sm text-slate-500" aria-live="polite"></p>
 
-          <!-- Chỉ số -->
+          <!-- Chỉ số thống kê -->
           <section class="grid grid-cols-2 gap-4 lg:grid-cols-4">
             <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <p class="text-sm text-slate-500">Page quản lý</p>
               <p id="metric-pages" class="mt-1 text-3xl font-bold text-slate-900">—</p>
+            </div>
+            <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p class="text-sm text-slate-500">Tổng tác vụ</p>
+              <p id="metric-total" class="mt-1 text-3xl font-bold text-slate-900">—</p>
             </div>
             <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <p class="text-sm text-slate-500">Sẵn sàng vào lịch</p>
@@ -50,16 +50,21 @@
               <p id="metric-publish" class="mt-1 text-3xl font-bold text-brand-600">—</p>
             </div>
             <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p class="text-sm text-slate-500">Đã lên lịch</p>
+              <p id="metric-scheduled" class="mt-1 text-3xl font-bold text-sky-600">—</p>
+            </div>
+            <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <p class="text-sm text-slate-500">Quá hạn &lt; 24 giờ</p>
               <p id="metric-overdue" class="mt-1 text-3xl font-bold text-amber-600">—</p>
             </div>
-          </section>
-
-          <!-- Hành động nhanh (mobile) -->
-          <section class="flex flex-wrap gap-2 sm:hidden">
-            <button id="publish-due-m" type="button" class="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white">Xử lý đến hạn</button>
-            <button id="publish-overdue-m" type="button" class="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600">Đăng lại quá hạn</button>
-            <button id="retry-failed-m" type="button" class="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600">Chuẩn bị lỗi</button>
+            <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p class="text-sm text-slate-500">Đã đăng</p>
+              <p id="metric-published" class="mt-1 text-3xl font-bold text-emerald-600">—</p>
+            </div>
+            <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p class="text-sm text-slate-500">Lỗi đăng</p>
+              <p id="metric-failed" class="mt-1 text-3xl font-bold text-rose-600">—</p>
+            </div>
           </section>
 
           <!-- Trạng thái kênh -->

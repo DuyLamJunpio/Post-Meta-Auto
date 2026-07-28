@@ -28,6 +28,16 @@
         </header>
 
         <main class="mx-auto w-full max-w-7xl flex-1 space-y-4 p-4 lg:p-8">
+          <!-- Thanh hành động nhanh (hàng loạt) -->
+          <div class="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+            <button id="act-refresh" type="button" class="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">↻ Làm mới</button>
+            <span class="hidden h-6 w-px bg-slate-200 sm:block"></span>
+            <button id="act-publish-due" type="button" class="rounded-lg bg-brand-500 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-600">⚡ Xử lý đến hạn</button>
+            <button id="act-publish-overdue" type="button" class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700 hover:bg-amber-100">⏰ Đăng quá hạn (&lt;24h)</button>
+            <button id="act-retry-failed" type="button" class="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">↺ Chuẩn bị task lỗi</button>
+            <p id="act-status" class="ml-auto text-xs text-slate-500" aria-live="polite"></p>
+          </div>
+
           <!-- Tabs lọc trạng thái -->
           <div id="task-tabs" class="flex flex-wrap gap-2"></div>
 

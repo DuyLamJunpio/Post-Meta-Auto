@@ -49,6 +49,55 @@ export function formatOverdue(value) {
   return remainingMinutes > 0 ? `Quá hạn ${hours} giờ ${remainingMinutes} phút` : `Quá hạn ${hours} giờ`;
 }
 
+// Ngày giờ đầy đủ (có thứ) theo giờ VN — dùng cho tooltip/chi tiết lịch đăng.
+export function formatFull(value) {
+  if (!value) {
+    return "Chưa đặt lịch";
+  }
+  return new Intl.DateTimeFormat("vi-VN", {
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Asia/Ho_Chi_Minh"
+  }).format(new Date(value));
+}
+
+// Chuỗi khoảng cách thời gian dạng "2 giờ 5 phút" / "3 ngày" từ số mili-giây.
+function humanizeDuration(ms) {
+  const totalMinutes = Math.max(0, Math.floor(ms / 60000));
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+
+  if (days > 0) {
+    return hours > 0 ? `${days} ngày ${hours} giờ` : `${days} ngày`;
+  }
+  if (hours > 0) {
+    return minutes > 0 ? `${hours} giờ ${minutes} phút` : `${hours} giờ`;
+  }
+  return `${minutes} phút`;
+}
+
+// Đếm ngược / quá hạn so với hiện tại: { label, tone } cho UI.
+// tone: "future" (còn thời gian) | "due" (đến hạn/quá hạn ngắn) | "overdue" (quá hạn) | "none".
+export function formatCountdown(publishAt) {
+  if (!publishAt) {
+    return { label: "Chưa đặt lịch", tone: "none" };
+  }
+  const target = new Date(publishAt).getTime();
+  if (Number.isNaN(target)) {
+    return { label: "Lịch không hợp lệ", tone: "overdue" };
+  }
+  const diff = target - Date.now();
+  if (diff > 0) {
+    return { label: `Còn ${humanizeDuration(diff)}`, tone: "future" };
+  }
+  return { label: `Quá hạn ${humanizeDuration(-diff)}`, tone: "overdue" };
+}
+
 export function normalizeText(value) {
   return String(value || "")
     .normalize("NFD")

@@ -23,10 +23,21 @@ async function loadOverview() {
 
   try {
     const data = await fetchJson("/api/notion/tasks");
+    const tasks = data.tasks || [];
+    const scheduledCount = tasks.filter(
+      (t) => !t.isPublished && t.publishStatus === "Đã lên lịch" && !t.readyToPublish
+    ).length;
+    const publishedCount = tasks.filter((t) => t.isPublished).length;
+    const failedCount = tasks.filter((t) => t.taskStage === "failed").length;
+
+    setMetric("#metric-total", data.totalCount ?? tasks.length);
     setMetric("#metric-ready", data.scheduleReadyCount ?? 0);
     setMetric("#metric-publish", data.readyCount ?? 0);
+    setMetric("#metric-scheduled", scheduledCount);
     setMetric("#metric-overdue", data.overdueCount ?? 0);
-    statusEl.textContent = `${data.totalCount} tác vụ · ${data.scheduleReadyCount || 0} sẵn sàng vào lịch · ${data.readyCount || 0} sẵn sàng đăng · ${data.overdueCount || 0} quá hạn dưới 24 giờ.`;
+    setMetric("#metric-published", publishedCount);
+    setMetric("#metric-failed", failedCount);
+    statusEl.textContent = `${data.totalCount} tác vụ · ${data.scheduleReadyCount || 0} sẵn sàng vào lịch · ${data.readyCount || 0} sẵn sàng đăng · ${scheduledCount} đã lên lịch · ${publishedCount} đã đăng · ${failedCount} lỗi.`;
   } catch (error) {
     statusEl.textContent = error.message;
   }
@@ -80,41 +91,7 @@ async function loadChannels() {
   channelStatusEl.replaceChildren(...cards);
 }
 
-// ---------- Hành động nhanh ----------
-
-async function runAction(button, url, label) {
-  const buttons = document.querySelectorAll("[data-action]");
-  buttons.forEach((b) => (b.disabled = true));
-  statusEl.textContent = `Đang ${label}...`;
-  try {
-    const data = await fetchJson(url, { method: "POST" });
-    const parts = [];
-    if (data.schedule) parts.push(`${data.schedule.successCount} vào lịch`);
-    if (typeof data.successCount === "number") parts.push(`${data.successCount} thành công`);
-    if (typeof data.failureCount === "number") parts.push(`${data.failureCount} lỗi`);
-    if (typeof data.skippedCount === "number") parts.push(`${data.skippedCount} bỏ qua`);
-    statusEl.textContent = parts.length ? parts.join(" · ") : data.message || "Hoàn tất.";
-    await loadOverview();
-  } catch (error) {
-    statusEl.textContent = error.message;
-  } finally {
-    buttons.forEach((b) => (b.disabled = false));
-  }
-}
-
-function wireAction(ids, url, label) {
-  ids.forEach((id) => {
-    const btn = document.querySelector(id);
-    if (btn) {
-      btn.setAttribute("data-action", "");
-      btn.addEventListener("click", () => runAction(btn, url, label));
-    }
-  });
-}
-
-wireAction(["#publish-due", "#publish-due-m"], "/api/notion/publish-due", "xử lý tác vụ đến hạn");
-wireAction(["#publish-overdue", "#publish-overdue-m"], "/api/notion/publish-overdue", "đăng lại bài quá hạn");
-wireAction(["#retry-failed", "#retry-failed-m"], "/api/notion/retry-failed", "chuẩn bị các task lỗi");
+// Tổng quan chỉ hiển thị thống kê (chỉ đọc). Mọi hành động đăng/lên lịch nằm ở trang Tác vụ.
 
 loadOverview();
 loadChannels();
