@@ -33,6 +33,19 @@
             </select>
             <button id="refresh-btn" type="button" class="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600">Tải lại</button>
           </div>
+
+          <!--
+            Thanh công cụ: cào ngay + xuất file.
+            Nằm TRONG <header class="sticky top-0"> nên nó dính theo khi cuộn —
+            thao tác được ở mọi vị trí trang, không phải cuộn xuống cuối.
+            `w-full` khiến nó xuống hàng riêng trong flex-wrap của header.
+            Nội dung do statistics.js dựng, vì cần danh sách khoảng thời gian
+            lấy từ máy chủ và ID trang đang chọn.
+          -->
+          <div
+            id="crawl-toolbar"
+            class="flex w-full flex-wrap items-center gap-2 border-t border-slate-100 pt-2.5"
+          ></div>
         </header>
 
         <main class="mx-auto w-full max-w-7xl flex-1 space-y-6 p-4 lg:p-8">

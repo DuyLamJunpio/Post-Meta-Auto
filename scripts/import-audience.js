@@ -112,6 +112,8 @@ function readSnapshot(filePath) {
     businessId: payload.businessId ? String(payload.businessId) : null,
     source: String(payload.source || "browser"),
     capturedAt,
+    // Mặc định 'lifetime' để payload cũ (chưa có trường này) vẫn nạp được.
+    timeRange: String(payload.timeRange || "lifetime"),
     rows: rows.map(normalizeRow)
   };
 }
@@ -123,9 +125,9 @@ async function saveSnapshot(sql, snapshot) {
   return sql.begin(async (tx) => {
     const [created] = await tx`
       INSERT INTO crawled_audience_snapshots
-        (asset_id, asset_type, business_id, source, captured_at)
+        (asset_id, asset_type, business_id, source, captured_at, time_range)
       VALUES (${snapshot.assetId}, ${snapshot.assetType}, ${snapshot.businessId},
-              ${snapshot.source}, ${snapshot.capturedAt})
+              ${snapshot.source}, ${snapshot.capturedAt}, ${snapshot.timeRange})
       RETURNING id
     `;
 

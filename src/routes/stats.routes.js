@@ -3,6 +3,7 @@ const express = require("express");
 const analyticsService = require("../services/analytics.service");
 const audienceService = require("../services/audience.service");
 const audienceExportService = require("../services/audience-export.service");
+const crawlJobsService = require("../services/crawl-jobs.service");
 const pageVisibilityService = require("../services/page-visibility.service");
 
 const router = express.Router();
@@ -148,6 +149,82 @@ router.get("/stats/pages/:pageId/audience/export", async (req, res, next) => {
       return res.send(audienceExportService.toWorkbookBuffer(rows));
     }
     return res.send(audienceExportService.toCsv(rows));
+  } catch (error) {
+    next(error);
+  }
+});
+
+// --- Nút "Cào ngay" --------------------------------------------------------
+
+// Danh sách khoảng thời gian cho ô chọn trên thanh công cụ.
+// Giao diện KHÔNG tự khai danh sách này: khai hai chỗ thì sớm muộn lệch nhau,
+// và người dùng chọn được một khoảng mà máy chủ từ chối.
+router.get("/crawl/time-ranges", (_req, res) => {
+  res.json({ success: true, timeRanges: crawlJobsService.TIME_RANGES });
+});
+
+// Đặt một yêu cầu cào. KHÔNG cào ngay tại đây — chỉ ghi vào hàng đợi.
+//
+// Vì sao không cào luôn? Vì máy chủ này (Render) không có Edge và không có
+// phiên Facebook. Việc cào do máy ở nhà nhận về làm, nên endpoint này trả lời
+// trong vài mili giây rồi giao diện hỏi tiến trình sau.
+router.post("/crawl/jobs", async (req, res, next) => {
+  try {
+    const { pageId, target, timeRange } = req.body || {};
+    const page = pageVisibilityService
+      .getVisiblePages(req.session.facebookUser.pages)
+      .find((p) => p.id === pageId);
+
+    if (!page) {
+      throw createPublicError(404, "Page ID không thuộc tài khoản đang đăng nhập.");
+    }
+
+    // Cào Instagram thì asset là tài khoản IG, không phải Page.
+    // Lấy ID từ PHIÊN ĐĂNG NHẬP chứ không tin tham số gửi lên: nếu tin, người
+    // dùng sửa request là đặt được lệnh cào một trang bất kỳ không thuộc quyền.
+    const laInstagram = target === "instagram";
+    const ig = page.instagramBusinessAccount;
+
+    if (laInstagram && !(ig && ig.id)) {
+      throw createPublicError(400, "Trang này chưa liên kết tài khoản Instagram.");
+    }
+
+    const { job, daCoSan } = await crawlJobsService.createJob({
+      userId: req.session.userId || null,
+      assetId: laInstagram ? ig.id : page.id,
+      assetType: laInstagram ? "instagram" : "page",
+      assetName: laInstagram ? ig.username || "" : page.name || "",
+      timeRange
+    });
+
+    res.json({
+      success: true,
+      job,
+      // Cho giao diện biết đây là yêu cầu cũ được dùng lại, để nói
+      // "đang cào rồi" thay vì "đã đặt lịch cào" — hai câu khác nghĩa hẳn.
+      alreadyQueued: daCoSan
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Tiến trình các yêu cầu của một trang. Giao diện hỏi lại mỗi vài giây.
+router.get("/crawl/jobs", async (req, res, next) => {
+  try {
+    const { pageId, target } = req.query;
+    const page = pageVisibilityService
+      .getVisiblePages(req.session.facebookUser.pages)
+      .find((p) => p.id === pageId);
+
+    if (!page) {
+      throw createPublicError(404, "Page ID không thuộc tài khoản đang đăng nhập.");
+    }
+
+    const ig = page.instagramBusinessAccount;
+    const assetId = target === "instagram" && ig && ig.id ? ig.id : page.id;
+
+    res.json({ success: true, jobs: await crawlJobsService.listJobs(assetId) });
   } catch (error) {
     next(error);
   }

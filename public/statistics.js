@@ -11,6 +11,9 @@ const reportEl = document.querySelector("#report");
 
 let chartInstances = [];
 let lastAnalytics = null;
+// Danh sách Page đầy đủ (kèm instagramBusinessAccount). Thanh công cụ cần cả
+// đối tượng chứ không chỉ id, để biết Page này có Instagram hay không.
+let allPages = [];
 
 // --- Định dạng số ----------------------------------------------------------
 
@@ -610,53 +613,25 @@ function renderDemographicsCharts(demo, accent) {
   ]);
 }
 
-// Bốn nút tải dữ liệu thô. Là thẻ <a> thật chứ không phải nút gọi fetch:
-// trình duyệt tự lo phần tải file, còn máy chủ đã đặt sẵn tên file trong
-// header. Làm bằng fetch thì phải tự dựng Blob, tự tạo URL tạm, tự thu hồi —
-// nhiều dòng hơn để làm đúng cái việc thẻ <a> vốn đã làm.
-function exportBar(audience) {
-  const pageId = audience.page && audience.page.id;
-  if (!pageId) return null;
-
-  const base = `/api/stats/pages/${encodeURIComponent(pageId)}/audience/export`;
-
-  const link = (label, format, extraAttrs) =>
-    el("a", {
-      class:
-        "rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium " +
-        "text-slate-700 transition hover:bg-slate-50 hover:border-slate-400",
-      text: label,
-      attrs: Object.assign({ href: `${base}?format=${format}` }, extraAttrs || {})
-    });
-
-  // Nói rõ số liệu chụp lúc nào khi nguồn là công cụ cào. Với Graph API thì số
-  // liệu là thời gian thực nên không cần; với nguồn cào thì nó chỉ mới bằng
-  // lần chạy gần nhất trên máy — không hiện ra thì người xem dễ tưởng là số
-  // của hôm nay trong khi có khi đã một tuần.
-  const fb = audience.facebook || {};
-  const ghiChu =
-    fb.available && fb.source === "crawler" && fb.capturedAt
-      ? `Số liệu Facebook cào lúc ${new Date(fb.capturedAt).toLocaleString("vi-VN")}`
-      : "Xuất đúng những con số đang hiển thị bên dưới";
-
-  return card([
-    cardHeading("Xuất dữ liệu thô", ghiChu),
-    el("div", { class: "flex flex-wrap gap-2" }, [
-      link("CSV", "csv"),
-      link("Excel (.xlsx)", "xlsx"),
-      link("JSON", "json"),
-      // PDF mở tab mới rồi tự gọi hộp thoại in — không phải file tải về.
-      link("PDF (in / lưu PDF)", "pdf", { target: "_blank", rel: "noopener" })
-    ])
-  ]);
-}
-
 function renderAudience(audience) {
   const container = el("section", { class: "space-y-4" });
   container.append(sectionHeader("Đối tượng khách hàng", "Nhân khẩu học người theo dõi · tệp khách hàng", "#0ea5e9"));
 
-  const nutXuat = exportBar(audience);
-  if (nutXuat) container.append(nutXuat);
+  // Nói rõ số liệu chụp lúc nào khi nguồn là công cụ cào. Với Graph API thì số
+  // liệu là thời gian thực nên không cần; với nguồn cào thì nó chỉ mới bằng
+  // lần cào gần nhất — không hiện ra thì người xem dễ tưởng là số của hôm nay
+  // trong khi có khi đã một tuần.
+  const fb = audience.facebook || {};
+  if (fb.available && fb.source === "crawler" && fb.capturedAt) {
+    container.append(
+      el("p", {
+        class: "text-xs text-slate-500",
+        text:
+          "Nguồn: công cụ cào Business Suite · chụp lúc " +
+          new Date(fb.capturedAt).toLocaleString("vi-VN")
+      })
+    );
+  }
 
   // Instagram (nhân khẩu học thật).
   if (audience.page.hasInstagram) {
@@ -695,12 +670,212 @@ async function loadAudience(pageId) {
   }
 }
 
+// --- Thanh công cụ: cào ngay + xuất file -----------------------------------
+//
+// Đặt ở <header sticky> nên dùng được ở mọi vị trí cuộn. Trước đây các nút này
+// nằm cuối phần "Đối tượng khách hàng", tức phải cuộn qua toàn bộ biểu đồ mới
+// bấm được — với Page nhiều bài thì đó là cuộn rất xa.
+
+const crawlToolbar = document.querySelector("#crawl-toolbar");
+
+// Danh sách khoảng thời gian do MÁY CHỦ khai (crawl-jobs.service.js).
+// Nạp một lần rồi dùng lại: nó không đổi trong một phiên làm việc.
+let timeRanges = null;
+// Bộ đếm hỏi lại tiến trình. Giữ tham chiếu để còn dừng được khi đổi trang —
+// không dừng thì đổi Page vài lần sẽ có vài bộ đếm cùng chạy, cùng ghi đè
+// dòng trạng thái của nhau.
+let crawlTimer = null;
+
+async function ensureTimeRanges() {
+  if (timeRanges) return timeRanges;
+  try {
+    const data = await fetchJson("/api/crawl/time-ranges");
+    timeRanges = data.timeRanges || [];
+  } catch {
+    // Máy chủ chưa cấu hình Postgres -> vẫn cho chọn "trọn đời", vì đó là
+    // khoảng duy nhất đã xác nhận Meta hỗ trợ.
+    timeRanges = [{ value: "lifetime", label: "Trọn đời", verified: true }];
+  }
+  return timeRanges;
+}
+
+function nutPhu(label, extraAttrs) {
+  return el("a", {
+    class:
+      "rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium " +
+      "text-slate-700 transition hover:border-slate-400 hover:bg-slate-50",
+    text: label,
+    attrs: extraAttrs
+  });
+}
+
+// Bốn liên kết tải dữ liệu thô. Là thẻ <a> thật chứ không phải nút gọi fetch:
+// trình duyệt tự lo phần tải file, còn máy chủ đã đặt sẵn tên file trong
+// header. Làm bằng fetch thì phải tự dựng Blob, tự tạo URL tạm, tự thu hồi —
+// nhiều dòng hơn để làm đúng cái việc thẻ <a> vốn đã làm.
+function nutXuatFile(pageId) {
+  const base = `/api/stats/pages/${encodeURIComponent(pageId)}/audience/export`;
+  return [
+    nutPhu("CSV", { href: `${base}?format=csv` }),
+    nutPhu("Excel", { href: `${base}?format=xlsx` }),
+    nutPhu("JSON", { href: `${base}?format=json` }),
+    // PDF mở tab mới rồi tự gọi hộp thoại in — không phải file tải về.
+    nutPhu("PDF", { href: `${base}?format=pdf`, target: "_blank", rel: "noopener" })
+  ];
+}
+
+async function buildToolbar(page) {
+  clearInterval(crawlTimer);
+  crawlTimer = null;
+  crawlToolbar.replaceChildren();
+
+  if (!page) return;
+
+  const ranges = await ensureTimeRanges();
+  const coIg = Boolean(page.instagramBusinessAccount && page.instagramBusinessAccount.id);
+
+  const oNguon = el("select", {
+    class: "rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
+  }, [
+    el("option", { text: "Facebook", attrs: { value: "facebook" } }),
+    // Chỉ hiện Instagram khi Page thật sự có liên kết — cho chọn rồi báo lỗi
+    // là kiểu giao diện hứa thứ nó không làm được.
+    coIg ? el("option", { text: "Instagram", attrs: { value: "instagram" } }) : null
+  ]);
+
+  const oThoiGian = el("select", {
+    class: "rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
+  }, ranges.map((r) =>
+    el("option", {
+      // Dấu ⚠ cho khoảng CHƯA xác nhận Meta hỗ trợ. Thà nói trước còn hơn để
+      // người dùng chọn rồi nhận về một job failed mà không hiểu vì sao.
+      text: r.verified ? r.label : `${r.label} (chưa xác nhận)`,
+      attrs: { value: r.value }
+    })
+  ));
+
+  const nutCao = el("button", {
+    class:
+      "rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white " +
+      "transition hover:bg-emerald-700 disabled:opacity-50",
+    text: "Cào ngay",
+    attrs: { type: "button" }
+  });
+
+  const trangThai = el("span", { class: "text-xs text-slate-500" });
+
+  nutCao.addEventListener("click", async () => {
+    nutCao.disabled = true;
+    trangThai.textContent = "Đang gửi yêu cầu…";
+    try {
+      // fetchJson tự đặt Content-Type khi có body — xem shared/api.js
+      const data = await fetchJson("/api/crawl/jobs", {
+        method: "POST",
+        body: JSON.stringify({
+          pageId: page.id,
+          target: oNguon.value,
+          timeRange: oThoiGian.value
+        })
+      });
+      hienTrangThaiJob(trangThai, data.job, data.alreadyQueued);
+      theoDoiJob(page.id, oNguon.value, trangThai, nutCao);
+    } catch (error) {
+      trangThai.textContent = `Lỗi: ${error.message}`;
+      nutCao.disabled = false;
+    }
+  });
+
+  crawlToolbar.append(
+    el("span", { class: "text-xs font-medium text-slate-500", text: "Cào dữ liệu:" }),
+    oNguon,
+    oThoiGian,
+    nutCao,
+    trangThai,
+    el("span", { class: "ml-auto text-xs font-medium text-slate-500", text: "Xuất:" }),
+    ...nutXuatFile(page.id)
+  );
+
+  // Có việc đang dang dở từ lần trước (máy vừa bật lên chẳng hạn) thì hiện
+  // ngay, đừng để người dùng bấm thêm một yêu cầu nữa cho cùng một trang.
+  theoDoiJob(page.id, oNguon.value, trangThai, nutCao, { imLangKhiRong: true });
+}
+
+function hienTrangThaiJob(trangThai, job, daCoSan) {
+  if (!job) {
+    trangThai.textContent = "";
+    return;
+  }
+
+  if (job.status === "done") {
+    trangThai.textContent =
+      `Xong · ${job.rowCount || 0} dòng. Bấm "Tải lại" để xem số mới.`;
+    return;
+  }
+  if (job.status === "failed") {
+    trangThai.textContent = `Hỏng: ${job.error || "không rõ nguyên nhân"}`;
+    return;
+  }
+  if (job.status === "pending") {
+    // Nói rõ đang chờ CÁI GÌ. "Đang chờ" trơn khiến người dùng tưởng máy chủ
+    // chậm, trong khi thật ra máy ở nhà đang tắt.
+    trangThai.textContent = daCoSan
+      ? "Yêu cầu này đã nằm trong hàng đợi, đang chờ máy cào bật lên."
+      : "Đã xếp hàng — sẽ chạy khi máy cào ở nhà bật lên.";
+    return;
+  }
+  trangThai.textContent = "Đang cào… (mở Edge, cuộn trang, chờ số liệu)";
+}
+
+// Hỏi lại tiến trình mỗi vài giây cho tới khi xong.
+//
+// Vì sao hỏi lại chứ không đẩy thẳng? Vì máy chủ không có đường đẩy tới trình
+// duyệt (không dùng WebSocket ở dự án này), và một lần cào chỉ kéo dài vài
+// phút. Hỏi 5 giây một lần trong vài phút là chi phí không đáng kể, đổi lại
+// không phải thêm cả một tầng kết nối thời gian thực.
+function theoDoiJob(pageId, target, trangThai, nutCao, { imLangKhiRong = false } = {}) {
+  clearInterval(crawlTimer);
+
+  const hoi = async () => {
+    try {
+      const data = await fetchJson(
+        `/api/crawl/jobs?pageId=${encodeURIComponent(pageId)}&target=${encodeURIComponent(target)}`
+      );
+      const job = (data.jobs || [])[0];
+
+      if (!job) {
+        if (!imLangKhiRong) trangThai.textContent = "";
+        clearInterval(crawlTimer);
+        crawlTimer = null;
+        nutCao.disabled = false;
+        return;
+      }
+
+      hienTrangThaiJob(trangThai, job, false);
+
+      if (job.status === "done" || job.status === "failed") {
+        clearInterval(crawlTimer);
+        crawlTimer = null;
+        nutCao.disabled = false;
+      } else {
+        nutCao.disabled = true;
+      }
+    } catch {
+      // Mất mạng chốc lát không đáng để xoá dòng trạng thái đang hiện —
+      // lần hỏi kế tiếp sẽ tự cập nhật lại.
+    }
+  };
+
+  hoi();
+  crawlTimer = setInterval(hoi, 5000);
+}
+
 // --- Tải & điều phối -------------------------------------------------------
 
 async function loadPages() {
   try {
     const data = await fetchJson("/api/pages");
     const pages = (data && data.pages) || [];
+    allPages = pages;
     pageSelect.replaceChildren();
     if (pages.length === 0) {
       pageSelect.append(el("option", { text: "Không có Page", attrs: { value: "" } }));
@@ -728,6 +903,12 @@ async function loadReport(pageId) {
   destroyCharts();
   reportEl.replaceChildren();
   warningsEl.replaceChildren();
+
+  // Dựng thanh công cụ NGAY, không chờ báo cáo tải xong: kéo toàn bộ lịch sử
+  // bài đăng có thể mất vài chục giây, mà nút "Cào ngay" thì dùng được luôn.
+  // Bắt nó chờ chỉ làm người dùng tưởng trang bị treo.
+  buildToolbar(allPages.find((p) => p.id === pageId));
+
   statusEl.textContent = "Đang kéo toàn bộ lịch sử và tính thống kê… (có thể mất một lúc với Page nhiều bài)";
   refreshBtn.disabled = true;
   pageSelect.disabled = true;
