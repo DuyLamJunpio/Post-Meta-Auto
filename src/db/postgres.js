@@ -74,4 +74,74 @@ async function initAccountSchema() {
   console.log("[Postgres] Bảng users + user_facebook + user_notion sẵn sàng.");
 }
 
-module.exports = { getSql, isEnabled, initAccountSchema };
+// Nhân khẩu học lấy bằng công cụ cào Business Suite (dự án Crawl_demographics_meta).
+//
+// VÌ SAO Ở POSTGRES CHỨ KHÔNG PHẢI SQLite?
+// data/app.db nằm trên đĩa của máy chủ, mà Render xoá sạch đĩa mỗi lần deploy —
+// số liệu cào từ máy bạn sẽ biến mất sau lần deploy kế tiếp. Postgres (Supabase)
+// là kho DUY NHẤT bền qua redeploy, cùng chỗ đang giữ users/user_facebook.
+//
+// LUỒNG:
+//   [máy bạn] python -m src.cli run --all
+//        -> node scripts/import-audience.js  -> Supabase  -> [web đọc]
+//
+// LƯU Ý VỀ ĐƠN VỊ: `percentage` LÀ PHẦN TRĂM SẴN, không phải số người.
+// Meta cho tổng vượt 100% (thực đo: Việt Nam 106.2%, tổng theo quốc gia ~112%)
+// vì một người có thể được tính vào nhiều quốc gia. Đó là đặc thù dữ liệu của
+// Meta, KHÔNG phải lỗi. Vì vậy tầng đọc phải dùng
+// normalizeBreakdown({ alreadyPercent: true }) để không chia lại theo tổng.
+async function initCrawledAudienceSchema() {
+  const db = getSql();
+  if (!db) {
+    return;
+  }
+
+  await db`
+    CREATE TABLE IF NOT EXISTS crawled_audience_snapshots (
+      id          BIGSERIAL PRIMARY KEY,
+      -- ID Page Facebook hoặc tài khoản Instagram
+      asset_id    TEXT NOT NULL,
+      -- 'page' hoặc 'instagram'
+      asset_type  TEXT NOT NULL DEFAULT 'page',
+      business_id TEXT,
+      source      TEXT NOT NULL DEFAULT 'browser',
+      -- Thời điểm Meta hiển thị số liệu (do công cụ cào ghi lại)
+      captured_at TIMESTAMPTZ NOT NULL,
+      -- Thời điểm ghi vào đây — khác captured_at khi đẩy bù dữ liệu cũ
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+
+  await db`
+    CREATE TABLE IF NOT EXISTS crawled_audience_rows (
+      id          BIGSERIAL PRIMARY KEY,
+      snapshot_id BIGINT NOT NULL
+                  REFERENCES crawled_audience_snapshots(id) ON DELETE CASCADE,
+      -- 'age_gender' | 'city' | 'country'
+      dimension   TEXT NOT NULL,
+      -- Nhãn gọn để hiển thị: "25-34 / female" hoặc "Huế, Thừa Thiên - Huế"
+      segment     TEXT NOT NULL,
+      -- Ba cột dưới chỉ điền cho đúng chiều tương ứng, còn lại để NULL
+      age_range   TEXT,
+      gender      TEXT,
+      location    TEXT,
+      -- ĐÃ LÀ PHẦN TRĂM (xem ghi chú đầu hàm)
+      percentage  DOUBLE PRECISION NOT NULL
+    )
+  `;
+
+  // Câu hỏi hay dùng nhất: "lấy ảnh chụp MỚI NHẤT của trang này".
+  await db`
+    CREATE INDEX IF NOT EXISTS idx_crawled_snapshots_asset
+      ON crawled_audience_snapshots (asset_id, captured_at DESC)
+  `;
+
+  await db`
+    CREATE INDEX IF NOT EXISTS idx_crawled_rows_snapshot
+      ON crawled_audience_rows (snapshot_id)
+  `;
+
+  console.log("[Postgres] Bảng crawled_audience_* sẵn sàng.");
+}
+
+module.exports = { getSql, isEnabled, initAccountSchema, initCrawledAudienceSchema };
