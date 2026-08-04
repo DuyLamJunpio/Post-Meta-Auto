@@ -141,7 +141,83 @@ async function initCrawledAudienceSchema() {
       ON crawled_audience_rows (snapshot_id)
   `;
 
+  // Khoảng thời gian của số liệu: 'lifetime' | 'last_7d' | 'last_28d' | ...
+  //
+  // ADD COLUMN IF NOT EXISTS chứ không sửa câu CREATE TABLE ở trên: bảng đã
+  // có dữ liệu thật trên Supabase rồi. Sửa CREATE chỉ tác dụng với cơ sở dữ
+  // liệu trống, còn bảng đang chạy sẽ mãi thiếu cột — mà không có gì báo.
+  await db`
+    ALTER TABLE crawled_audience_snapshots
+      ADD COLUMN IF NOT EXISTS time_range TEXT NOT NULL DEFAULT 'lifetime'
+  `;
+
   console.log("[Postgres] Bảng crawled_audience_* sẵn sàng.");
 }
 
-module.exports = { getSql, isEnabled, initAccountSchema, initCrawledAudienceSchema };
+// Hàng đợi yêu cầu cào, để bấm nút trên web mà máy ở nhà thực hiện.
+//
+// VÌ SAO PHẢI CÓ HÀNG ĐỢI THAY VÌ GỌI THẲNG?
+// Web chạy trên Render, nhưng việc cào chỉ làm được trên máy có Edge đã đăng
+// nhập Facebook. Hai bên KHÔNG gọi thẳng nhau được: máy ở nhà nằm sau router,
+// không có địa chỉ công khai để Render gọi tới.
+//
+// Hàng đợi lật ngược chiều gọi. Web chỉ GHI một dòng "có việc cần làm".
+// Máy ở nhà tự ĐỌC và nhận việc. Không cần mở cổng, không cần địa chỉ tĩnh,
+// và máy tắt cũng không mất yêu cầu — nó nằm chờ tới khi máy bật lên.
+async function initCrawlJobsSchema() {
+  const db = getSql();
+  if (!db) {
+    return;
+  }
+
+  await db`
+    CREATE TABLE IF NOT EXISTS crawl_jobs (
+      id           BIGSERIAL PRIMARY KEY,
+      -- Ai bấm nút. Để biết yêu cầu này của tài khoản nào.
+      user_id      BIGINT,
+      asset_id     TEXT NOT NULL,
+      asset_type   TEXT NOT NULL DEFAULT 'page',
+      -- Chép lại tên trang lúc bấm, để bảng lịch sử đọc được mà không phải
+      -- tra ngược sang Facebook (tên trang có thể đổi, hoặc mất quyền xem)
+      asset_name   TEXT,
+      -- 'lifetime' | 'last_7d' | 'last_28d' | 'last_90d' | ...
+      time_range   TEXT NOT NULL DEFAULT 'lifetime',
+      -- pending -> running -> done | failed
+      status       TEXT NOT NULL DEFAULT 'pending',
+      requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      started_at   TIMESTAMPTZ,
+      finished_at  TIMESTAMPTZ,
+      -- Kết quả khi xong
+      snapshot_id  BIGINT,
+      row_count    INTEGER,
+      error        TEXT,
+      -- Máy nào nhận việc. Có ích khi sau này chạy hai máy cùng lúc.
+      worker       TEXT
+    )
+  `;
+
+  // Câu hỏi máy ở nhà hỏi liên tục: "có việc nào đang chờ không?".
+  // Index MỘT PHẦN (chỉ dòng pending) vì bảng sẽ đầy dần các dòng done, mà
+  // những dòng đó không bao giờ nằm trong câu hỏi này.
+  await db`
+    CREATE INDEX IF NOT EXISTS idx_crawl_jobs_cho_xu_ly
+      ON crawl_jobs (requested_at)
+      WHERE status = 'pending'
+  `;
+
+  // Câu hỏi của web: "trang này có yêu cầu nào gần đây?"
+  await db`
+    CREATE INDEX IF NOT EXISTS idx_crawl_jobs_asset
+      ON crawl_jobs (asset_id, requested_at DESC)
+  `;
+
+  console.log("[Postgres] Bảng crawl_jobs sẵn sàng.");
+}
+
+module.exports = {
+  getSql,
+  isEnabled,
+  initAccountSchema,
+  initCrawledAudienceSchema,
+  initCrawlJobsSchema
+};

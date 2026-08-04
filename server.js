@@ -47,6 +47,16 @@ initCrawledAudienceSchema().catch((error) => {
   console.error("[Postgres] Khởi tạo bảng nhân khẩu học thất bại:", error.message);
 });
 
+// Hàng đợi "Cào ngay": web ghi yêu cầu, máy có Edge ở nhà đọc và thực hiện.
+initCrawlJobsSchema().catch((error) => {
+  console.error("[Postgres] Khởi tạo bảng hàng đợi cào thất bại:", error.message);
+});
+
+// Hàng đợi "Cào ngay": web ghi yêu cầu, máy có Edge ở nhà đọc và thực hiện.
+initCrawlJobsSchema().catch((error) => {
+  console.error("[Postgres] Khởi tạo bảng hàng đợi cào thất bại:", error.message);
+});
+
 // Session lưu bền trong SQLite (khởi tạo sau initDatabase để bảng sessions đã có).
 const sessionStore = new SqliteSessionStore();
 
