@@ -3,6 +3,7 @@
 // Fetch nằm ở facebook.service; ở đây chỉ TÍNH (dễ kiểm chứng, tách khỏi I/O).
 
 const facebookService = require("./facebook.service");
+const crawledAudienceService = require("./crawled-audience.service");
 const stats = require("../utils/stats-math");
 
 const GENDER_LABELS = { F: "Nữ", M: "Nam", U: "Không xác định" };
@@ -40,14 +41,26 @@ function genderLabel(code) {
 }
 
 // Chuẩn hóa 1 breakdown [{label,value}] -> sắp giảm dần + thêm % trên tổng, cắt top-N.
-function normalizeBreakdown(items, { limit = 0, relabel } = {}) {
+//
+// alreadyPercent: dữ liệu ĐÃ LÀ PHẦN TRĂM, đừng chia lại theo tổng.
+//   Graph API trả SỐ NGƯỜI (tuyệt đối) -> phải chia để ra %.
+//   Công cụ cào Business Suite trả sẵn % -> chia lần nữa là sai.
+//
+//   Vì sao không chia lại được? Meta cho tổng theo quốc gia VƯỢT 100%
+//   (thực đo: Việt Nam 106.2%, tổng ~112%) do một người có thể được tính vào
+//   nhiều quốc gia. Chia lại sẽ ra 106.2 / 112 * 100 = 94.8% — lệch hẳn so với
+//   con số hiển thị trên chính giao diện Meta, và không có gì báo là đã sai.
+function normalizeBreakdown(items, { limit = 0, relabel, alreadyPercent = false } = {}) {
   const list = (items || [])
     .map((item) => ({ label: relabel ? relabel(item.label) : item.label, value: Number(item.value) || 0 }))
     .filter((item) => item.value > 0);
 
   const total = stats.sum(list.map((item) => item.value));
   const sorted = list
-    .map((item) => ({ ...item, percent: total === 0 ? 0 : (item.value / total) * 100 }))
+    .map((item) => ({
+      ...item,
+      percent: alreadyPercent ? item.value : total === 0 ? 0 : (item.value / total) * 100
+    }))
     .sort((a, b) => b.value - a.value);
 
   return {
@@ -140,7 +153,14 @@ function buildFacebookAudience(raw) {
 
   const b = raw.breakdowns || {};
 
+  // Nguồn cào Business Suite trả sẵn PHẦN TRĂM; Graph API trả SỐ NGƯỜI.
+  // Cờ này đi theo dữ liệu (do nguồn tự khai) thay vì do nơi gọi truyền vào —
+  // dữ liệu tự mô tả đơn vị của nó thì không ai phải nhớ truyền đúng cờ.
+  const pct = Boolean(raw.alreadyPercent);
+
   // page_fans_gender_age: nhãn dạng "M.25-34" / "F.18-24" / "U.65+".
+  // Nguồn cào cũng dùng đúng định dạng này nên đoạn tách nhãn dưới đây dùng
+  // chung cho cả hai nguồn, không phải viết hai lần.
   const genderAgeItems = b.genderAge || [];
   const ageAgg = new Map();
   const genderAgg = new Map();
@@ -150,16 +170,32 @@ function buildFacebookAudience(raw) {
     if (genderCode) genderAgg.set(genderLabel(genderCode), (genderAgg.get(genderLabel(genderCode)) || 0) + item.value);
   }
 
-  const age = normalizeBreakdown(Array.from(ageAgg, ([label, value]) => ({ label, value })));
-  age.items = sortAgeBuckets(age.items);
-  const gender = normalizeBreakdown(Array.from(genderAgg, ([label, value]) => ({ label, value })));
-  const country = normalizeBreakdown(b.country, { limit: 8, relabel: countryName });
-  const city = normalizeBreakdown(b.city, { limit: 8 });
+  // Cộng dồn tuổi×giới thành hai chiều riêng: với dữ liệu phần trăm, tổng của
+  // "nữ 25-34" + "nam 25-34" chính là phần trăm của nhóm tuổi 25-34. Đúng cả
+  // với số tuyệt đối lẫn phần trăm, nên không cần tách nhánh.
+  const ageItems = Array.from(ageAgg, ([label, value]) => ({ label, value }));
 
-  const ageByValue = normalizeBreakdown(Array.from(ageAgg, ([label, value]) => ({ label, value })));
+  const age = normalizeBreakdown(ageItems, { alreadyPercent: pct });
+  age.items = sortAgeBuckets(age.items);
+  const gender = normalizeBreakdown(
+    Array.from(genderAgg, ([label, value]) => ({ label, value })),
+    { alreadyPercent: pct }
+  );
+  const country = normalizeBreakdown(b.country, {
+    limit: 8, relabel: countryName, alreadyPercent: pct
+  });
+  const city = normalizeBreakdown(b.city, { limit: 8, alreadyPercent: pct });
+
+  const ageByValue = normalizeBreakdown(ageItems, { alreadyPercent: pct });
 
   return {
     available: true,
+    // Cho giao diện biết số liệu này từ đâu và chụp lúc nào. Quan trọng với
+    // nguồn cào: dữ liệu chỉ mới bằng lần chạy gần nhất trên máy, không phải
+    // thời gian thực như gọi API. Không hiện ra thì người xem dễ tưởng là
+    // số liệu hôm nay trong khi có khi đã một tuần.
+    source: raw.source || "graph_api",
+    capturedAt: raw.capturedAt || null,
     age,
     gender,
     city,
@@ -194,6 +230,33 @@ async function buildPageAudience({ page }) {
   } else {
     facebook = { available: false, reason: fbResult.reason.publicMessage || fbResult.reason.message };
   }
+
+  // NGUỒN DỰ PHÒNG: Graph API không ra dữ liệu -> dùng số liệu đã cào.
+  //
+  // Vì sao đặt ở đây mà không thay thẳng Graph API? Vì hai nguồn có điểm mạnh
+  // khác nhau: Graph API là thời gian thực, còn nguồn cào chỉ mới bằng lần
+  // chạy gần nhất. Ưu tiên Graph API, chỉ lùi về nguồn cào khi nó không ra —
+  // như vậy nếu mai này Meta mở lại metric thì tự động dùng lại, không phải
+  // sửa code.
+  if (!facebook.available) {
+    const lyDoGraphApi = facebook.reason;
+    const daCao = crawledAudienceService.getCrawledAudience(page.id);
+
+    if (daCao.available) {
+      facebook = buildFacebookAudience(daCao);
+      warnings.push(
+        `Facebook: Graph API không trả dữ liệu (${lyDoGraphApi}) — đang dùng số liệu cào lúc ${daCao.capturedAt}.`
+      );
+    } else {
+      // Cả hai nguồn đều không có -> nói rõ CẢ HAI lý do. Chỉ báo một lý do
+      // thì người đọc sẽ đi sửa nhầm chỗ.
+      facebook = {
+        available: false,
+        reason: `${lyDoGraphApi} | Dữ liệu cào: ${daCao.reason}`
+      };
+    }
+  }
+
   if (!facebook.available && facebook.reason) {
     warnings.push(`Facebook: ${facebook.reason}`);
   }
