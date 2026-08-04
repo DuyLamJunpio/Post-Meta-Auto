@@ -610,9 +610,53 @@ function renderDemographicsCharts(demo, accent) {
   ]);
 }
 
+// Bốn nút tải dữ liệu thô. Là thẻ <a> thật chứ không phải nút gọi fetch:
+// trình duyệt tự lo phần tải file, còn máy chủ đã đặt sẵn tên file trong
+// header. Làm bằng fetch thì phải tự dựng Blob, tự tạo URL tạm, tự thu hồi —
+// nhiều dòng hơn để làm đúng cái việc thẻ <a> vốn đã làm.
+function exportBar(audience) {
+  const pageId = audience.page && audience.page.id;
+  if (!pageId) return null;
+
+  const base = `/api/stats/pages/${encodeURIComponent(pageId)}/audience/export`;
+
+  const link = (label, format, extraAttrs) =>
+    el("a", {
+      class:
+        "rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium " +
+        "text-slate-700 transition hover:bg-slate-50 hover:border-slate-400",
+      text: label,
+      attrs: Object.assign({ href: `${base}?format=${format}` }, extraAttrs || {})
+    });
+
+  // Nói rõ số liệu chụp lúc nào khi nguồn là công cụ cào. Với Graph API thì số
+  // liệu là thời gian thực nên không cần; với nguồn cào thì nó chỉ mới bằng
+  // lần chạy gần nhất trên máy — không hiện ra thì người xem dễ tưởng là số
+  // của hôm nay trong khi có khi đã một tuần.
+  const fb = audience.facebook || {};
+  const ghiChu =
+    fb.available && fb.source === "crawler" && fb.capturedAt
+      ? `Số liệu Facebook cào lúc ${new Date(fb.capturedAt).toLocaleString("vi-VN")}`
+      : "Xuất đúng những con số đang hiển thị bên dưới";
+
+  return card([
+    cardHeading("Xuất dữ liệu thô", ghiChu),
+    el("div", { class: "flex flex-wrap gap-2" }, [
+      link("CSV", "csv"),
+      link("Excel (.xlsx)", "xlsx"),
+      link("JSON", "json"),
+      // PDF mở tab mới rồi tự gọi hộp thoại in — không phải file tải về.
+      link("PDF (in / lưu PDF)", "pdf", { target: "_blank", rel: "noopener" })
+    ])
+  ]);
+}
+
 function renderAudience(audience) {
   const container = el("section", { class: "space-y-4" });
   container.append(sectionHeader("Đối tượng khách hàng", "Nhân khẩu học người theo dõi · tệp khách hàng", "#0ea5e9"));
+
+  const nutXuat = exportBar(audience);
+  if (nutXuat) container.append(nutXuat);
 
   // Instagram (nhân khẩu học thật).
   if (audience.page.hasInstagram) {

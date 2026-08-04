@@ -240,7 +240,9 @@ async function buildPageAudience({ page }) {
   // sửa code.
   if (!facebook.available) {
     const lyDoGraphApi = facebook.reason;
-    const daCao = crawledAudienceService.getCrawledAudience(page.id);
+    // `await`: kho số liệu cào nằm trên Postgres (Supabase) chứ không phải
+    // SQLite cùng máy, nên đây là một lượt đi mạng chứ không đọc đĩa tức thì.
+    const daCao = await crawledAudienceService.getCrawledAudience(page.id);
 
     if (daCao.available) {
       facebook = buildFacebookAudience(daCao);

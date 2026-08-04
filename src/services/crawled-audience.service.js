@@ -1,10 +1,15 @@
-// Đọc nhân khẩu học do công cụ cào Business Suite ghi vào (bảng crawled_audience_*).
+// Đọc nhân khẩu học do công cụ cào Business Suite ghi vào Postgres (Supabase).
 //
 // VÌ SAO CẦN NGUỒN NÀY
 // Meta đã ngừng gần hết metric nhân khẩu học cấp Page trên Graph API — xem ghi
 // chú trong facebook.service.js ("Tất cả metric thử đều không hợp lệ ở phiên bản
 // API này"). Công cụ cào chạy trên máy có Edge đã đăng nhập, lấy số liệu từ
-// chính giao diện Business Suite rồi ghi vào data/app.db. File này chỉ ĐỌC.
+// chính giao diện Business Suite rồi đẩy lên Supabase. File này chỉ ĐỌC.
+//
+// VÌ SAO POSTGRES CHỨ KHÔNG PHẢI data/app.db
+// Render xoá sạch đĩa máy chủ mỗi lần deploy. Để ở SQLite thì web chạy trên
+// Render sẽ luôn thấy bảng rỗng, dù máy bạn cào đủ. Postgres là kho duy nhất
+// bền qua redeploy — xem initCrawledAudienceSchema() trong src/db/postgres.js.
 //
 // NGUYÊN TẮC: file này KHÔNG TÍNH TOÁN GÌ.
 // Nó chỉ đọc DB rồi đổi sang đúng hình dạng `raw` mà buildFacebookAudience()
@@ -17,7 +22,7 @@
 // vượt 100% (Việt Nam 106.2%, tổng ~112%) nên số hiện lên sẽ LỆCH so với
 // giao diện Meta (106.2% thành 94.8%).
 
-const { getDb } = require("../db");
+const { getSql, isEnabled } = require("../db/postgres");
 
 // Nhãn giới tính của crawler -> mã mà audience.service đang dùng.
 // Crawler chuẩn hóa về chữ thường; audience.service dùng F/M/U.
@@ -28,29 +33,24 @@ function genderCode(value) {
 }
 
 // Lấy ảnh chụp MỚI NHẤT của một asset (Page hoặc IG). Trả null nếu chưa có.
-function findLatestSnapshot(database, assetId) {
-  return (
-    database
-      .prepare(
-        `SELECT id, asset_id, asset_type, business_id, source, captured_at
-         FROM crawled_audience_snapshots
-         WHERE asset_id = ?
-         ORDER BY captured_at DESC, id DESC
-         LIMIT 1`
-      )
-      .get(String(assetId)) || null
-  );
+async function findLatestSnapshot(sql, assetId) {
+  const rows = await sql`
+    SELECT id, asset_id, asset_type, business_id, source, captured_at
+    FROM crawled_audience_snapshots
+    WHERE asset_id = ${String(assetId)}
+    ORDER BY captured_at DESC, id DESC
+    LIMIT 1
+  `;
+  return rows[0] || null;
 }
 
-function findRows(database, snapshotId) {
-  return database
-    .prepare(
-      `SELECT dimension, age_range, gender, location, percentage
-       FROM crawled_audience_rows
-       WHERE snapshot_id = ?
-       ORDER BY id`
-    )
-    .all(snapshotId);
+async function findRows(sql, snapshotId) {
+  return sql`
+    SELECT dimension, segment, age_range, gender, location, percentage
+    FROM crawled_audience_rows
+    WHERE snapshot_id = ${snapshotId}
+    ORDER BY id
+  `;
 }
 
 // Đổi các dòng phẳng trong DB thành 3 breakdown mà buildFacebookAudience cần.
@@ -63,6 +63,8 @@ function findRows(database, snapshotId) {
 // Lưu ý về quốc gia: crawler trả TÊN đầy đủ ("Việt Nam"), không phải mã ("VN").
 // countryName() trong audience.service trả nguyên giá trị khi không tra được
 // trong bảng mã, nên tên đầy đủ đi qua an toàn, không bị đổi thành "Không rõ".
+//
+// Hàm THUẦN: chỉ nhận mảng, trả object. Test được mà không cần DB.
 function toBreakdowns(rows) {
   const genderAge = [];
   const city = [];
@@ -84,47 +86,106 @@ function toBreakdowns(rows) {
   return { genderAge, city, country };
 }
 
+function khongCoDuLieu(reason) {
+  return { available: false, reason };
+}
+
 // Điểm vào: lấy dữ liệu cào mới nhất của một asset.
 //
 // Trả về cùng dạng với facebook.service.getPageAudience() để hai nguồn thay
 // thế được cho nhau: { available, reason? , breakdowns?, ... }.
-// Không ném lỗi khi chưa có dữ liệu — "chưa cào lần nào" là trạng thái bình
-// thường, không phải sự cố.
-function getCrawledAudience(assetId) {
+//
+// KHÔNG NÉM LỖI — kể cả khi Postgres hỏng.
+// Đây là nguồn DỰ PHÒNG: nếu nó ném lỗi thì cả phần đối tượng khách hàng sập,
+// trong khi Instagram và phần phân tích tương tác vẫn hoàn toàn dùng được.
+// Nhưng cũng KHÔNG nuốt lỗi: câu lỗi đi vào `reason`, mà audience.service đẩy
+// `reason` lên mảng warnings, nên người dùng vẫn đọc được nguyên nhân thật.
+async function getCrawledAudience(assetId) {
   if (!assetId) {
-    return { available: false, reason: "Thiếu ID trang để tra dữ liệu đã cào." };
+    return khongCoDuLieu("Thiếu ID trang để tra dữ liệu đã cào.");
   }
 
-  const database = getDb();
-  const snapshot = findLatestSnapshot(database, assetId);
+  if (!isEnabled()) {
+    return khongCoDuLieu("Chưa cấu hình DATABASE_URL nên không đọc được kho số liệu cào.");
+  }
 
-  if (!snapshot) {
+  const sql = getSql();
+
+  try {
+    const snapshot = await findLatestSnapshot(sql, assetId);
+
+    if (!snapshot) {
+      return khongCoDuLieu(
+        "Chưa có dữ liệu cào cho trang này. Chạy `python -m src.cli run --all` " +
+          "trên máy có Edge đã đăng nhập Facebook."
+      );
+    }
+
+    const rows = await findRows(sql, snapshot.id);
+    if (rows.length === 0) {
+      return khongCoDuLieu("Bản ghi cào gần nhất không có dòng số liệu nào.");
+    }
+
     return {
-      available: false,
-      reason:
-        "Chưa có dữ liệu cào cho trang này. Chạy `python -m src.cli run` " +
-        "trên máy có Edge đã đăng nhập Facebook."
+      available: true,
+      // Cờ này BẮT BUỘC — xem cảnh báo về đơn vị ở đầu file.
+      alreadyPercent: true,
+      source: "crawler",
+      // Postgres trả về đối tượng Date; đổi sang chuỗi ISO để JSON hoá ổn định.
+      capturedAt: new Date(snapshot.captured_at).toISOString(),
+      assetType: snapshot.asset_type,
+      snapshotId: Number(snapshot.id),
+      breakdowns: toBreakdowns(rows)
     };
+  } catch (error) {
+    return khongCoDuLieu(`Không đọc được kho số liệu cào: ${error.message}`);
+  }
+}
+
+// Toàn bộ dòng thô của lần cào mới nhất — dùng cho chức năng xuất file.
+//
+// Vì sao có hàm riêng thay vì dùng lại getCrawledAudience()? Vì hàm kia trả về
+// dữ liệu ĐÃ GOM về 3 breakdown để vẽ biểu đồ. Người dùng xuất "dữ liệu thô"
+// thì cần đúng những dòng nằm trong DB, không qua bước gom nào.
+async function getRawRows(assetId) {
+  if (!assetId || !isEnabled()) {
+    return { available: false, rows: [] };
   }
 
-  const rows = findRows(database, snapshot.id);
-  if (rows.length === 0) {
-    return { available: false, reason: "Bản ghi cào gần nhất không có dòng số liệu nào." };
-  }
+  const sql = getSql();
 
-  return {
-    available: true,
-    // Cờ này BẮT BUỘC — xem cảnh báo về đơn vị ở đầu file.
-    alreadyPercent: true,
-    source: "crawler",
-    capturedAt: snapshot.captured_at,
-    assetType: snapshot.asset_type,
-    breakdowns: toBreakdowns(rows)
-  };
+  try {
+    const snapshot = await findLatestSnapshot(sql, assetId);
+    if (!snapshot) {
+      return { available: false, rows: [] };
+    }
+
+    const rows = await findRows(sql, snapshot.id);
+    return {
+      available: rows.length > 0,
+      snapshotId: Number(snapshot.id),
+      assetType: snapshot.asset_type,
+      capturedAt: new Date(snapshot.captured_at).toISOString(),
+      source: snapshot.source,
+      rows: rows.map((row) => ({
+        dimension: row.dimension,
+        segment: row.segment,
+        ageRange: row.age_range,
+        gender: row.gender,
+        location: row.location,
+        percentage: Number(row.percentage)
+      }))
+    };
+  } catch {
+    // Xuất file là chức năng phụ — hỏng thì trả rỗng để route báo 404 tử tế,
+    // thay vì đổ lỗi 500. Nguyên nhân thật đã hiện ở getCrawledAudience().
+    return { available: false, rows: [] };
+  }
 }
 
 module.exports = {
   getCrawledAudience,
+  getRawRows,
   // Xuất phụ để test độc lập phần đổi hình dạng, không cần DB.
   toBreakdowns,
   genderCode
