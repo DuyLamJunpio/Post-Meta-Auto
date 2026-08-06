@@ -19,7 +19,9 @@ const autoPublishRoutes = require("./src/routes/auto-publish.routes");
 const statsRoutes = require("./src/routes/stats.routes");
 const leadRoutes = require("./src/routes/lead.routes");
 const accountRoutes = require("./src/routes/account.routes");
-const { initAccountSchema, initCrawledAudienceSchema, initCrawlJobsSchema, backfillSnapshotOwners } = require("./src/db/postgres");
+const { initAccountSchema, initCrawledAudienceSchema, initCrawlJobsSchema, initWorkerSchema, backfillSnapshotOwners } = require("./src/db/postgres");
+const workerRoutes = require("./src/routes/worker.routes");
+const crawlJobsService = require("./src/services/crawl-jobs.service");
 const mediaRoutes = require("./src/routes/media.routes");
 const googleDriveService = require("./src/services/google-drive.service");
 const instagramService = require("./src/services/instagram.service");
@@ -37,9 +39,13 @@ const app = express();
 initDatabase();
 
 // Khởi tạo bảng tài khoản trên Postgres (Supabase) — không chặn app nếu chưa cấu hình DATABASE_URL.
-initAccountSchema().catch((error) => {
-  console.error("[Postgres] Khởi tạo bảng tài khoản thất bại:", error.message);
-});
+// worker_tokens/crawl_workers tham chiếu users -> initWorkerSchema chạy SAU
+// initAccountSchema (không song song, tránh lỗi khoá ngoại khi bảng users chưa có).
+initAccountSchema()
+  .then(() => initWorkerSchema())
+  .catch((error) => {
+    console.error("[Postgres] Khởi tạo bảng tài khoản/worker thất bại:", error.message);
+  });
 
 // Bảng nhân khẩu học (do công cụ cào ghi) + hàng đợi "Cào ngay". Cùng đặt trên
 // Postgres chứ không phải SQLite: Render xoá đĩa mỗi lần deploy, số liệu để ở
@@ -109,6 +115,10 @@ app.use("/account", accountRoutes);
 
 // Thu lead khách hàng: CÔNG KHAI (khách không có tài khoản admin) -> đặt TRƯỚC requireAuth.
 app.use("/lead", leadRoutes.publicRouter);
+
+// API cho app cào tải về: gác bằng TOKEN worker (không cookie) -> đặt TRƯỚC
+// requireAuth. Router tự gắn enforceHttps + requireWorkerToken + rate-limit.
+app.use("/worker", workerRoutes);
 
 app.use("/api", requireAuth);
 app.use("/api", leadRoutes.adminRouter);
@@ -365,6 +375,16 @@ if (mediaProxyService.isEnabled()) {
   const mediaSweepTimer = setInterval(() => mediaProxyService.sweep(), config.mediaProxy.ttlMs);
   mediaSweepTimer.unref();
 }
+
+// Dọn job cào kẹt 'running' (máy cào tắt giữa chừng). Phải ở server-side vì
+// worker Phase 1 không còn tự gọi 'release'. Không có cái này -> job kẹt vĩnh
+// viễn chặn mọi "Cào ngay" mới cho asset đó (cơ chế chống bấm trùng).
+const crawlStaleTimer = setInterval(() => {
+  crawlJobsService.releaseStaleJobs(60).catch((error) => {
+    console.warn("[Crawl] Dọn job kẹt lỗi:", error.message);
+  });
+}, 5 * 60 * 1000);
+crawlStaleTimer.unref();
 
 app.use((req, res) => {
   res.status(404).json({

@@ -27,6 +27,9 @@ require("dotenv").config();
 const fs = require("fs");
 
 const { getSql, isEnabled, initCrawledAudienceSchema } = require("../src/db/postgres");
+// Kiểm + lưu snapshot dùng CHUNG với worker.routes.js -> một nguồn validate,
+// hai đường (HTTP mới + script cũ máy-nhà) không lệch cách kiểm.
+const { InputError, buildSnapshot, saveSnapshot } = require("../src/services/audience-import.service");
 
 // Mã thoát để bên gọi phân biệt được nguyên nhân
 const EXIT_OK = 0;
@@ -34,41 +37,8 @@ const EXIT_NO_CONFIG = 1; // chua cau hinh DATABASE_URL
 const EXIT_BAD_INPUT = 2; // JSON thieu truong hoac sai dinh dang
 const EXIT_WRITE_FAILED = 3; // ghi that bai
 
-// Ba chiều dữ liệu công cụ cào biết lấy. Chặn ở đây để một chiều lạ (Meta đổi
-// tên chẳng hạn) không lặng lẽ chui vào DB rồi làm hỏng phần đọc.
-const DIMENSIONS = new Set(["age_gender", "city", "country"]);
-
 function log(...args) {
   console.error(...args);
-}
-
-class InputError extends Error {}
-
-function normalizeRow(row, index) {
-  const dimension = String(row.dimension || "");
-  if (!DIMENSIONS.has(dimension)) {
-    throw new InputError(
-      `Dong ${index}: chieu du lieu la '${dimension}', chi chap nhan ` +
-        `${[...DIMENSIONS].join(" | ")}.`
-    );
-  }
-
-  const percentage = Number(row.percentage);
-  if (!Number.isFinite(percentage) || percentage < 0) {
-    throw new InputError(`Dong ${index}: percentage khong hop le (${row.percentage}).`);
-  }
-
-  // KHÔNG chặn percentage > 100. Meta thật sự trả những giá trị như vậy
-  // (Việt Nam 106.2%) vì một người có thể được tính vào nhiều quốc gia.
-  // Đặt trần 100 ở đây sẽ loại bỏ dữ liệu đúng.
-  return {
-    dimension,
-    segment: String(row.segment || ""),
-    age_range: row.ageRange || null,
-    gender: row.gender || null,
-    location: row.location || null,
-    percentage
-  };
 }
 
 // Đọc và KIỂM TRA đầu vào trước khi mở kết nối.
@@ -91,66 +61,8 @@ function readSnapshot(filePath) {
     throw new InputError(`File khong phai JSON hop le: ${error.message}`);
   }
 
-  const assetId = String(payload.assetId || "").trim();
-  if (!assetId) {
-    throw new InputError("Thieu assetId.");
-  }
-
-  const capturedAt = new Date(payload.capturedAt);
-  if (Number.isNaN(capturedAt.getTime())) {
-    throw new InputError(`capturedAt khong doc duoc: ${payload.capturedAt}`);
-  }
-
-  const rows = Array.isArray(payload.rows) ? payload.rows : [];
-  if (rows.length === 0) {
-    throw new InputError("Khong co dong so lieu nao (rows rong).");
-  }
-
-  return {
-    assetId,
-    assetType: payload.assetType === "instagram" ? "instagram" : "page",
-    businessId: payload.businessId ? String(payload.businessId) : null,
-    source: String(payload.source || "browser"),
-    capturedAt,
-    // Mặc định 'lifetime' để payload cũ (chưa có trường này) vẫn nạp được.
-    timeRange: String(payload.timeRange || "lifetime"),
-    rows: rows.map(normalizeRow)
-  };
-}
-
-async function saveSnapshot(sql, snapshot) {
-  // MỘT GIAO DỊCH cho cả ảnh chụp lẫn các dòng: ghi tới dòng thứ 20 mà lỗi thì
-  // 19 dòng trước bị huỷ theo. Không có giao dịch thì web sẽ đọc phải một ảnh
-  // chụp dở dang — mà nhìn bề ngoài không có cách nào biết nó dở dang.
-  return sql.begin(async (tx) => {
-    const [created] = await tx`
-      INSERT INTO crawled_audience_snapshots
-        (asset_id, asset_type, business_id, source, captured_at, time_range)
-      VALUES (${snapshot.assetId}, ${snapshot.assetType}, ${snapshot.businessId},
-              ${snapshot.source}, ${snapshot.capturedAt}, ${snapshot.timeRange})
-      RETURNING id
-    `;
-
-    const snapshotId = created.id;
-    const rows = snapshot.rows.map((row) => ({ ...row, snapshot_id: snapshotId }));
-
-    // Helper tx(...) của thư viện postgres sinh câu INSERT nhiều dòng có tham
-    // số hoá đầy đủ — không nối chuỗi, nên không có chỗ cho SQL injection.
-    await tx`
-      INSERT INTO crawled_audience_rows ${tx(
-        rows,
-        "snapshot_id",
-        "dimension",
-        "segment",
-        "age_range",
-        "gender",
-        "location",
-        "percentage"
-      )}
-    `;
-
-    return snapshotId;
-  });
+  // Kiểm + chuẩn hoá dùng CHUNG với đường HTTP (audience-import.service).
+  return buildSnapshot(payload);
 }
 
 async function main() {
@@ -183,7 +95,8 @@ async function main() {
   const sql = getSql();
   let snapshotId;
   try {
-    snapshotId = await saveSnapshot(sql, snapshot);
+    // userId=null: luồng vận hành cũ (máy-nhà) = legacy dùng chung.
+    ({ snapshotId } = await saveSnapshot(sql, snapshot, { userId: null }));
   } catch (error) {
     log(`[LOI] Ghi that bai: ${error.message}`);
     return EXIT_WRITE_FAILED;

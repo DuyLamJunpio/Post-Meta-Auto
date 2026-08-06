@@ -170,6 +170,19 @@ async function initCrawledAudienceSchema() {
       ON crawled_audience_snapshots (asset_id, user_id, captured_at DESC)
   `;
 
+  // Chống tạo trùng khi worker retry (cùng asset + thời điểm + khoảng -> cùng
+  // key). Index UNIQUE MỘT PHẦN: chỉ ràng buộc khi có key, để dữ liệu cũ (key
+  // NULL) không vi phạm.
+  await db`
+    ALTER TABLE crawled_audience_snapshots
+      ADD COLUMN IF NOT EXISTS idempotency_key TEXT
+  `;
+  await db`
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_crawled_snapshots_idem
+      ON crawled_audience_snapshots (idempotency_key)
+      WHERE idempotency_key IS NOT NULL
+  `;
+
   console.log("[Postgres] Bảng crawled_audience_* sẵn sàng.");
 }
 
@@ -233,6 +246,54 @@ async function initCrawlJobsSchema() {
   console.log("[Postgres] Bảng crawl_jobs sẵn sàng.");
 }
 
+// Token + heartbeat cho "app cào" tải về (chạy trên máy khách, gọi API bằng
+// token thay vì cầm DATABASE_URL). Xem worker-token.service.js.
+async function initWorkerSchema() {
+  const db = getSql();
+  if (!db) {
+    return;
+  }
+
+  // Chỉ lưu BĂM token (token_hash), không lưu token gốc. expires_at mặc định 90
+  // ngày để buộc xoay vòng. token_prefix để khách nhận diện token trên web.
+  await db`
+    CREATE TABLE IF NOT EXISTS worker_tokens (
+      id            BIGSERIAL PRIMARY KEY,
+      user_id       BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name          TEXT,
+      token_prefix  TEXT NOT NULL,
+      token_hash    TEXT NOT NULL,
+      scopes        TEXT NOT NULL DEFAULT 'crawl',
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_used_at  TIMESTAMPTZ,
+      expires_at    TIMESTAMPTZ NOT NULL DEFAULT (now() + INTERVAL '90 days'),
+      revoked_at    TIMESTAMPTZ,
+      UNIQUE(token_hash)
+    )
+  `;
+  await db`
+    CREATE INDEX IF NOT EXISTS idx_worker_tokens_user ON worker_tokens (user_id)
+  `;
+
+  // Nhịp tim + lỗi trước-claim của mỗi máy cào. Khoá theo token_id (1 token = 1
+  // máy) để nhiều máy trùng hostname mặc định 'DESKTOP-XXXX' không đè nhau.
+  await db`
+    CREATE TABLE IF NOT EXISTS crawl_workers (
+      id             BIGSERIAL PRIMARY KEY,
+      user_id        BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token_id       BIGINT REFERENCES worker_tokens(id) ON DELETE SET NULL,
+      hostname       TEXT,
+      app_version    TEXT,
+      last_seen_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_error     TEXT,
+      last_error_at  TIMESTAMPTZ,
+      UNIQUE(token_id)
+    )
+  `;
+
+  console.log("[Postgres] Bảng worker_tokens + crawl_workers sẵn sàng.");
+}
+
 // Gán chủ sở hữu cho các snapshot CŨ chưa có user_id, suy từ crawl_jobs đã liên
 // kết (crawl_jobs.snapshot_id -> snapshots.id). Chạy MỘT LẦN lúc khởi động, SAU
 // khi cả bảng snapshots (đã thêm cột user_id) lẫn crawl_jobs đều sẵn sàng.
@@ -267,5 +328,6 @@ module.exports = {
   initAccountSchema,
   initCrawledAudienceSchema,
   initCrawlJobsSchema,
+  initWorkerSchema,
   backfillSnapshotOwners
 };

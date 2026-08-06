@@ -106,10 +106,14 @@ async function createJob({ userId, assetId, assetType, assetName, timeRange }) {
     );
   }
 
+  // Chống bấm trùng THEO TỪNG TENANT: có AND user_id thì hai user cùng Page ID
+  // không nhận lại job của nhau (tránh rò asset_name chéo). IS NOT DISTINCT FROM
+  // xử lý cả trường hợp NULL = NULL (luồng vận hành cũ).
   const dangCho = await sql`
     SELECT * FROM crawl_jobs
     WHERE asset_id = ${id} AND time_range = ${range}
       AND status IN ('pending', 'running')
+      AND user_id IS NOT DISTINCT FROM ${userId || null}
     ORDER BY requested_at DESC
     LIMIT 1
   `;
@@ -167,7 +171,21 @@ async function getJob(jobId) {
 //
 // Toàn bộ nằm trong MỘT câu UPDATE: đọc rồi mới ghi ở hai câu riêng sẽ có khe
 // hở giữa hai câu, và khe hở đó chính là chỗ hai máy chen vào nhau.
-async function claimNextJob(workerName) {
+// Bộ lọc quyền sở hữu job theo token — dùng chung cho claim/finish/fail.
+// - scopes='crawl' (token khách): CHỈ job của mình, KHÔNG chạm job admin (NULL).
+// - có userId, không phải 'crawl' (admin/CLI có userId): job của mình HOẶC admin.
+// - không userId (CLI cũ, máy-nhà): không lọc -> giữ nguyên hành vi cũ, không gãy.
+function ownerFilter(sql, userId, scopes) {
+  if (scopes === "crawl") {
+    return sql`AND user_id = ${userId} AND user_id IS NOT NULL`;
+  }
+  if (userId !== null && userId !== undefined) {
+    return sql`AND (user_id = ${userId} OR user_id IS NULL)`;
+  }
+  return sql``;
+}
+
+async function claimNextJob(workerName, { userId = null, scopes = null } = {}) {
   const sql = requireSql();
 
   const rows = await sql`
@@ -175,7 +193,7 @@ async function claimNextJob(workerName) {
     SET status = 'running', started_at = now(), worker = ${String(workerName || "")}
     WHERE id = (
       SELECT id FROM crawl_jobs
-      WHERE status = 'pending'
+      WHERE status = 'pending' ${ownerFilter(sql, userId, scopes)}
       ORDER BY requested_at
       LIMIT 1
       FOR UPDATE SKIP LOCKED
@@ -186,14 +204,15 @@ async function claimNextJob(workerName) {
   return rows.length > 0 ? toPublic(rows[0]) : null;
 }
 
-async function finishJob(jobId, { snapshotId, rowCount }) {
+async function finishJob(jobId, { snapshotId, rowCount }, { userId = null, scopes = null } = {}) {
   const sql = requireSql();
+  // Chống khách A đóng job của khách B (và chống token khách chạm job admin NULL).
   const [row] = await sql`
     UPDATE crawl_jobs
     SET status = 'done', finished_at = now(),
         snapshot_id = ${snapshotId || null}, row_count = ${rowCount || 0},
         error = NULL
-    WHERE id = ${Number(jobId)}
+    WHERE id = ${Number(jobId)} ${ownerFilter(sql, userId, scopes)}
     RETURNING *
   `;
 
@@ -216,15 +235,35 @@ async function finishJob(jobId, { snapshotId, rowCount }) {
   return row ? toPublic(row) : null;
 }
 
-async function failJob(jobId, message) {
+async function failJob(jobId, message, { userId = null, scopes = null } = {}) {
   const sql = requireSql();
   const [row] = await sql`
     UPDATE crawl_jobs
     SET status = 'failed', finished_at = now(), error = ${String(message || "")}
-    WHERE id = ${Number(jobId)}
+    WHERE id = ${Number(jobId)} ${ownerFilter(sql, userId, scopes)}
     RETURNING *
   `;
   return row ? toPublic(row) : null;
+}
+
+// Trả thông tin thô của job để router worker kiểm ràng buộc khi nhận snapshot
+// (job thuộc đúng user + assetId khớp). KHÔNG đi qua toPublic vì cần user_id.
+async function getJobForWorker(jobId) {
+  if (!isEnabled()) return null;
+  const sql = getSql();
+  const rows = await sql`
+    SELECT id, user_id, asset_id, asset_type, status
+    FROM crawl_jobs WHERE id = ${Number(jobId)}
+  `;
+  if (rows.length === 0) return null;
+  const r = rows[0];
+  return {
+    id: Number(r.id),
+    userId: r.user_id === null ? null : Number(r.user_id),
+    assetId: r.asset_id,
+    assetType: r.asset_type,
+    status: r.status
+  };
 }
 
 // Việc bị bỏ dở: máy tắt giữa chừng thì job kẹt ở 'running' mãi mãi, và cơ
@@ -252,6 +291,7 @@ module.exports = {
   createJob,
   listJobs,
   getJob,
+  getJobForWorker,
   claimNextJob,
   finishJob,
   failJob,

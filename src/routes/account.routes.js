@@ -3,6 +3,7 @@ const express = require("express");
 const authService = require("../services/auth.service");
 const userFacebookService = require("../services/user-facebook.service");
 const notionOauthService = require("../services/notion-oauth.service");
+const workerTokenService = require("../services/worker-token.service");
 const notifier = require("../services/notifier");
 
 function requireAccount(req, res, next) {
@@ -10,6 +11,23 @@ function requireAccount(req, res, next) {
     return res.status(401).json({ success: false, message: "Vui lòng đăng nhập tài khoản." });
   }
   next();
+}
+
+// Chống CSRF cho POST đổi trạng thái (phát/thu hồi token): sameSite:lax không
+// diệt hết CSRF cùng-site, nên kiểm Origin/Referer khớp Host. Thiếu cả hai ->
+// từ chối (fetch cùng-site của trình duyệt luôn gửi Origin).
+function checkSameOrigin(req, res, next) {
+  const source = req.headers.origin || req.headers.referer || "";
+  if (source) {
+    try {
+      if (new URL(source).host === req.headers.host) {
+        return next();
+      }
+    } catch {
+      // rơi xuống 403
+    }
+  }
+  return res.status(403).json({ success: false, message: "Nguồn yêu cầu không hợp lệ (CSRF)." });
 }
 
 // Hệ tài khoản người dùng (đăng ký/đăng nhập bằng email + mật khẩu).
@@ -170,6 +188,48 @@ router.post("/notion/disconnect", requireAccount, async (req, res, next) => {
   try {
     await notionOauthService.disconnect(req.session.userId);
     res.json({ success: true, message: "Đã ngắt kết nối Notion." });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// --- Token cho app cào (Công cụ cào) ---------------------------------------
+
+// Phát token mới. Token GỐC chỉ trả về ĐÚNG MỘT LẦN — khách phải copy ngay.
+router.post("/worker-tokens", requireAccount, checkSameOrigin, async (req, res, next) => {
+  try {
+    const result = await workerTokenService.issueToken(req.session.userId, req.body && req.body.name);
+    res.json({
+      success: true,
+      token: result.token,
+      tokenMeta: {
+        id: result.id,
+        name: result.name,
+        tokenPrefix: result.tokenPrefix,
+        scopes: result.scopes,
+        createdAt: result.createdAt,
+        expiresAt: result.expiresAt
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Danh sách token (KHÔNG chứa token gốc/hash).
+router.get("/worker-tokens", requireAccount, async (req, res, next) => {
+  try {
+    res.json({ success: true, tokens: await workerTokenService.listTokens(req.session.userId) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Thu hồi token.
+router.post("/worker-tokens/:id/revoke", requireAccount, checkSameOrigin, async (req, res, next) => {
+  try {
+    const ok = await workerTokenService.revokeToken(req.params.id, req.session.userId);
+    res.json({ success: true, ok });
   } catch (error) {
     next(error);
   }
