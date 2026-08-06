@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Công cụ cào nhân khẩu học — Hướng dẫn</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/shared/tw-config.js"></script>
+  </head>
+  <body class="min-h-screen bg-slate-100 font-sans antialiased">
+    <div class="mx-auto max-w-2xl p-4 sm:p-8">
+      <a href="/account.html" class="mb-4 inline-flex items-center gap-1 text-sm font-medium text-slate-500 hover:text-slate-700">← Về trang tài khoản</a>
+
+      <header class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+        <div class="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-brand-500 text-xl font-bold text-white">⬇</div>
+        <h1 class="text-xl font-bold text-slate-900">Công cụ cào nhân khẩu học</h1>
+        <p class="mt-2 text-sm leading-relaxed text-slate-600">
+          Đây là tính năng nâng cao, <span class="font-medium text-slate-800">chỉ dành cho ai cần</span>: bạn tải một app nhỏ về máy mình, nó gắn vào trình duyệt Microsoft Edge (đã đăng nhập Facebook của bạn) để cào số liệu nhân khẩu học rồi đẩy lên web.
+        </p>
+        <p class="mt-2 text-xs leading-relaxed text-slate-500">
+          Vì sao phải chạy trên máy bạn? Máy chủ web không có trình duyệt và không có phiên đăng nhập Facebook của bạn, nên việc cào phải do máy bạn làm. App <span class="font-medium">không</span> chứa mật khẩu hay khoá cơ sở dữ liệu — nó chỉ cầm một “mã kết nối” riêng của bạn (thu hồi được bất cứ lúc nào).
+        </p>
+      </header>
+
+      <!-- Yêu cầu -->
+      <section class="mt-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h2 class="text-sm font-semibold text-slate-800">Cần chuẩn bị</h2>
+        <ul class="mt-2 space-y-1.5 text-sm text-slate-600">
+          <li class="flex gap-2"><span class="text-slate-400">•</span> Máy Windows có sẵn <span class="font-medium">Microsoft Edge</span> (gần như máy nào cũng có).</li>
+          <li class="flex gap-2"><span class="text-slate-400">•</span> Đã <span class="font-medium">đăng nhập Facebook</span> của bạn trong Edge (để cào được trang bạn quản lý).</li>
+          <li class="flex gap-2"><span class="text-slate-400">•</span> Một <span class="font-medium">mã kết nối</span> tạo ở bước 1 bên dưới.</li>
+        </ul>
+      </section>
+
+      <!-- Bước 1 -->
+      <section class="mt-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div class="flex items-center gap-3">
+          <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-100 text-sm font-bold text-brand-600">1</span>
+          <h2 class="text-sm font-semibold text-slate-800">Tạo mã kết nối</h2>
+        </div>
+        <p class="mt-2 pl-10 text-sm text-slate-600">
+          Vào trang tài khoản, mục <span class="font-medium">“Công cụ cào nhân khẩu học”</span>, bấm <span class="font-medium">Tạo mã kết nối</span> rồi sao chép ngay (mã chỉ hiện một lần).
+        </p>
+        <div class="mt-3 pl-10">
+          <a href="/account.html" class="inline-block rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600">Mở trang tài khoản →</a>
+        </div>
+      </section>
+
+      <!-- Bước 2: bản mã nguồn (chạy được ngay) -->
+      <section class="mt-4 rounded-2xl border border-emerald-200 bg-white p-6 shadow-sm">
+        <div class="flex items-center gap-3">
+          <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-700">2</span>
+          <h2 class="text-sm font-semibold text-slate-800">Chạy bằng bản mã nguồn</h2>
+          <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">Dùng được ngay</span>
+        </div>
+        <p class="mt-2 pl-10 text-sm text-slate-600">
+          Nếu máy bạn có sẵn Python và mã nguồn công cụ cào, đây là cách nhanh nhất để thử toàn bộ luồng — chưa cần bản đóng gói.
+        </p>
+        <div class="mt-3 pl-10">
+          <p class="text-xs font-medium text-slate-700">Tạo file <span class="font-mono">.env</span> trong thư mục dự án cào, với 2 dòng:</p>
+          <pre class="mt-2 overflow-x-auto rounded-lg bg-slate-900 p-3 text-[12px] leading-relaxed text-slate-100"><code>WEB_APP_URL=<span id="env-url">https://social-post-auto.onrender.com</span>
+WORKER_TOKEN=wk_...(mã kết nối vừa tạo ở bước 1)</code></pre>
+          <p class="mt-3 text-xs font-medium text-slate-700">Rồi chạy:</p>
+          <pre class="mt-2 overflow-x-auto rounded-lg bg-slate-900 p-3 text-[12px] leading-relaxed text-slate-100"><code>python -m src.worker --once   <span class="text-slate-400"># thử một nhịp rồi thoát</span>
+python -m src.worker          <span class="text-slate-400"># chạy nền liên tục (Ctrl+C để dừng)</span></code></pre>
+        </div>
+      </section>
+
+      <!-- Bước 3: bản .exe (sắp có) -->
+      <section class="mt-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div class="flex items-center gap-3">
+          <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-200 text-sm font-bold text-slate-600">3</span>
+          <h2 class="text-sm font-semibold text-slate-800">Chạy bằng bản đóng gói (.exe)</h2>
+          <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">Sắp có</span>
+        </div>
+        <p class="mt-2 pl-10 text-sm text-slate-600">
+          Bản <span class="font-mono">.exe</span> để tải về một-cú-nhấp (không cần cài Python) đang được đóng gói. Cách dùng khi có bản tải:
+        </p>
+        <ul class="mt-2 space-y-1.5 pl-10 text-sm text-slate-600">
+          <li class="flex gap-2"><span class="text-slate-400">•</span> Tải file <span class="font-mono">meta-crawler.exe</span> về một thư mục.</li>
+          <li class="flex gap-2"><span class="text-slate-400">•</span> Đặt file <span class="font-mono">.env</span> (2 dòng như bước 2) <span class="font-medium">cạnh</span> file <span class="font-mono">.exe</span>.</li>
+          <li class="flex gap-2"><span class="text-slate-400">•</span> Nhấp đúp để chạy — cửa sổ đen hiện log cho biết nó đang cào.</li>
+        </ul>
+        <p class="mt-3 pl-10 text-xs text-slate-400">Nút tải sẽ xuất hiện ở đây khi bản đóng gói sẵn sàng.</p>
+      </section>
+
+      <!-- Bước 4: kiểm chứng -->
+      <section class="mt-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div class="flex items-center gap-3">
+          <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-100 text-sm font-bold text-brand-600">4</span>
+          <h2 class="text-sm font-semibold text-slate-800">Kiểm chứng máy đã kết nối</h2>
+        </div>
+        <ul class="mt-2 space-y-1.5 pl-10 text-sm text-slate-600">
+          <li class="flex gap-2"><span class="text-slate-400">•</span> Mở trang <a href="/statistics.html" class="font-medium text-brand-600 hover:underline">Thống kê</a>, chọn một Page.</li>
+          <li class="flex gap-2"><span class="text-slate-400">•</span> Khi app đang chạy, huy hiệu sẽ chuyển thành <span class="font-medium text-emerald-600">● “Máy cào đang bật”</span>.</li>
+          <li class="flex gap-2"><span class="text-slate-400">•</span> Bấm <span class="font-medium">“Cào ngay”</span> → app nhận việc → mở Edge cào → số liệu lên web sau ít phút.</li>
+        </ul>
+      </section>
+
+      <!-- An toàn -->
+      <section class="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-6">
+        <h2 class="text-sm font-semibold text-slate-800">Về mã kết nối &amp; an toàn</h2>
+        <ul class="mt-2 space-y-1.5 text-xs leading-relaxed text-slate-500">
+          <li class="flex gap-2"><span class="text-slate-400">•</span> Mã kết nối chỉ cho phép đẩy số liệu nhân khẩu học của <span class="font-medium">riêng bạn</span> — không phải mật khẩu, không mở được dữ liệu người khác.</li>
+          <li class="flex gap-2"><span class="text-slate-400">•</span> Web chỉ lưu bản băm của mã, không lưu mã gốc. Mất mã thì tạo mã mới rồi thu hồi mã cũ.</li>
+          <li class="flex gap-2"><span class="text-slate-400">•</span> Mã tự hết hạn sau 90 ngày. Có thể thu hồi bất cứ lúc nào ở trang tài khoản.</li>
+        </ul>
+      </section>
+
+      <p class="mt-6 text-center text-xs text-slate-400">Cần trợ giúp khi đóng gói? Xem <span class="font-mono">docs/dong-goi-exe.md</span> trong dự án cào.</p>
+    </div>
+
+    <script>
+      // Điền địa chỉ web thật (đúng domain khách đang mở) vào ô WEB_APP_URL mẫu,
+      // để copy-paste vào .env là chạy — không phải sửa tay domain.
+      document.getElementById("env-url").textContent = window.location.origin;
+    </script>
+  </body>
+</html>
