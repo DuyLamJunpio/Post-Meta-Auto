@@ -211,7 +211,7 @@ function buildFacebookAudience(raw) {
 }
 
 // Điểm vào: gọi cả IG (thật) + FB (probe), trả payload + cảnh báo. Không để nhánh nào lỗi làm hỏng cả.
-async function buildPageAudience({ page }) {
+async function buildPageAudience({ page, userId = null }) {
   const warnings = [];
   let instagram = { available: false, reason: "Page chưa liên kết Instagram Business." };
   let facebook = { available: false, reason: "Chưa truy vấn." };
@@ -242,7 +242,7 @@ async function buildPageAudience({ page }) {
     const lyDoGraphApi = facebook.reason;
     // `await`: kho số liệu cào nằm trên Postgres (Supabase) chứ không phải
     // SQLite cùng máy, nên đây là một lượt đi mạng chứ không đọc đĩa tức thì.
-    const daCao = await crawledAudienceService.getCrawledAudience(page.id);
+    const daCao = await crawledAudienceService.getCrawledAudience(page.id, userId);
 
     if (daCao.available) {
       facebook = buildFacebookAudience(daCao);

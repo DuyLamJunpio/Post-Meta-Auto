@@ -33,11 +33,17 @@ function genderCode(value) {
 }
 
 // Lấy ảnh chụp MỚI NHẤT của một asset (Page hoặc IG). Trả null nếu chưa có.
-async function findLatestSnapshot(sql, assetId) {
+//
+// SCOPE THEO TENANT: chỉ lấy snapshot của chính `userId` HOẶC snapshot legacy
+// (user_id IS NULL — dữ liệu cũ/của người vận hành). Không kèm điều kiện này thì
+// hai tài khoản cùng quản một Page sẽ đọc số liệu của nhau. Khi `userId` là null
+// (phiên cũ / một người vận hành) thì chỉ khớp snapshot legacy — đúng hành vi cũ.
+async function findLatestSnapshot(sql, assetId, userId) {
   const rows = await sql`
     SELECT id, asset_id, asset_type, business_id, source, captured_at
     FROM crawled_audience_snapshots
     WHERE asset_id = ${String(assetId)}
+      AND (user_id = ${userId} OR user_id IS NULL)
     ORDER BY captured_at DESC, id DESC
     LIMIT 1
   `;
@@ -100,7 +106,7 @@ function khongCoDuLieu(reason) {
 // trong khi Instagram và phần phân tích tương tác vẫn hoàn toàn dùng được.
 // Nhưng cũng KHÔNG nuốt lỗi: câu lỗi đi vào `reason`, mà audience.service đẩy
 // `reason` lên mảng warnings, nên người dùng vẫn đọc được nguyên nhân thật.
-async function getCrawledAudience(assetId) {
+async function getCrawledAudience(assetId, userId = null) {
   if (!assetId) {
     return khongCoDuLieu("Thiếu ID trang để tra dữ liệu đã cào.");
   }
@@ -112,7 +118,7 @@ async function getCrawledAudience(assetId) {
   const sql = getSql();
 
   try {
-    const snapshot = await findLatestSnapshot(sql, assetId);
+    const snapshot = await findLatestSnapshot(sql, assetId, userId);
 
     if (!snapshot) {
       return khongCoDuLieu(
@@ -147,7 +153,7 @@ async function getCrawledAudience(assetId) {
 // Vì sao có hàm riêng thay vì dùng lại getCrawledAudience()? Vì hàm kia trả về
 // dữ liệu ĐÃ GOM về 3 breakdown để vẽ biểu đồ. Người dùng xuất "dữ liệu thô"
 // thì cần đúng những dòng nằm trong DB, không qua bước gom nào.
-async function getRawRows(assetId) {
+async function getRawRows(assetId, userId = null) {
   if (!assetId || !isEnabled()) {
     return { available: false, rows: [] };
   }
@@ -155,7 +161,7 @@ async function getRawRows(assetId) {
   const sql = getSql();
 
   try {
-    const snapshot = await findLatestSnapshot(sql, assetId);
+    const snapshot = await findLatestSnapshot(sql, assetId, userId);
     if (!snapshot) {
       return { available: false, rows: [] };
     }

@@ -21,6 +21,20 @@ if (missingEnv.length > 0) {
   process.exit(1);
 }
 
+// Cảnh báo (KHÔNG chặn khởi động): khoá mã hoá token trong DB nên tách khỏi
+// SESSION_SECRET. crypto-box ưu tiên TOKEN_ENCRYPTION_KEY rồi mới fallback
+// SESSION_SECRET. Nếu chỉ dựa SESSION_SECRET, việc xoay SESSION_SECRET (đổi bí
+// mật phiên) sẽ làm HỎNG toàn bộ token FB/Notion đã mã hoá — không giải mã lại
+// được, và lỗi chỉ lộ ra khi user bấm đăng bài. Ghim TOKEN_ENCRYPTION_KEY =
+// đúng giá trị SESSION_SECRET hiện tại để cố định khoá mà không hỏng dữ liệu cũ.
+if (!process.env.TOKEN_ENCRYPTION_KEY) {
+  console.warn(
+    "[Cấu hình] Chưa đặt TOKEN_ENCRYPTION_KEY — đang dùng SESSION_SECRET để mã hoá token trong DB. " +
+      "Nếu sau này xoay SESSION_SECRET sẽ MẤT khả năng giải mã token đã lưu. " +
+      "Khuyến nghị đặt TOKEN_ENCRYPTION_KEY (bằng giá trị SESSION_SECRET hiện tại) trong môi trường Render."
+  );
+}
+
 const graphApiVersion = process.env.META_GRAPH_API_VERSION;
 const googleDriveRedirectUri =
   process.env.GOOGLE_DRIVE_REDIRECT_URI ||

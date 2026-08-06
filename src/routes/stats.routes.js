@@ -59,7 +59,10 @@ router.get("/stats/pages/:pageId/audience", async (req, res, next) => {
       throw createPublicError(404, "Page ID không thuộc tài khoản đang đăng nhập.");
     }
 
-    const audience = await audienceService.buildPageAudience({ page });
+    const audience = await audienceService.buildPageAudience({
+      page,
+      userId: Number(req.session.userId) || null
+    });
     res.json({ success: true, audience });
   } catch (error) {
     next(error);
@@ -107,7 +110,10 @@ router.get("/stats/pages/:pageId/audience/export", async (req, res, next) => {
       );
     }
 
-    const audience = await audienceService.buildPageAudience({ page });
+    const audience = await audienceService.buildPageAudience({
+      page,
+      userId: Number(req.session.userId) || null
+    });
     const rows = audienceExportService.buildRows(audience);
     const filename = audienceExportService.buildFilename(page.id, spec.ext);
 
@@ -224,7 +230,10 @@ router.get("/crawl/jobs", async (req, res, next) => {
     const ig = page.instagramBusinessAccount;
     const assetId = target === "instagram" && ig && ig.id ? ig.id : page.id;
 
-    res.json({ success: true, jobs: await crawlJobsService.listJobs(assetId) });
+    res.json({
+      success: true,
+      jobs: await crawlJobsService.listJobs(assetId, 10, Number(req.session.userId) || null)
+    });
   } catch (error) {
     next(error);
   }

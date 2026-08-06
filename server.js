@@ -19,7 +19,7 @@ const autoPublishRoutes = require("./src/routes/auto-publish.routes");
 const statsRoutes = require("./src/routes/stats.routes");
 const leadRoutes = require("./src/routes/lead.routes");
 const accountRoutes = require("./src/routes/account.routes");
-const { initAccountSchema, initCrawledAudienceSchema, initCrawlJobsSchema } = require("./src/db/postgres");
+const { initAccountSchema, initCrawledAudienceSchema, initCrawlJobsSchema, backfillSnapshotOwners } = require("./src/db/postgres");
 const mediaRoutes = require("./src/routes/media.routes");
 const googleDriveService = require("./src/services/google-drive.service");
 const instagramService = require("./src/services/instagram.service");
@@ -41,16 +41,18 @@ initAccountSchema().catch((error) => {
   console.error("[Postgres] Khởi tạo bảng tài khoản thất bại:", error.message);
 });
 
-// Bảng nhân khẩu học do công cụ cào ghi vào. Cũng đặt trên Postgres chứ không
-// phải SQLite: Render xoá đĩa mỗi lần deploy, số liệu để ở app.db sẽ mất sạch.
-initCrawledAudienceSchema().catch((error) => {
-  console.error("[Postgres] Khởi tạo bảng nhân khẩu học thất bại:", error.message);
-});
-
-// Hàng đợi "Cào ngay": web ghi yêu cầu, máy có Edge ở nhà đọc và thực hiện.
-initCrawlJobsSchema().catch((error) => {
-  console.error("[Postgres] Khởi tạo bảng hàng đợi cào thất bại:", error.message);
-});
+// Bảng nhân khẩu học (do công cụ cào ghi) + hàng đợi "Cào ngay". Cùng đặt trên
+// Postgres chứ không phải SQLite: Render xoá đĩa mỗi lần deploy, số liệu để ở
+// app.db sẽ mất sạch.
+//
+// Hai init chạy SONG SONG, nhưng backfillSnapshotOwners() phải đợi CẢ HAI bảng
+// sẵn sàng (nó join crawled_audience_snapshots với crawl_jobs), nên gọi sau
+// Promise.all — không dựa vào thứ tự chạy của hai init.
+Promise.all([initCrawledAudienceSchema(), initCrawlJobsSchema()])
+  .then(() => backfillSnapshotOwners())
+  .catch((error) => {
+    console.error("[Postgres] Khởi tạo schema cào thất bại:", error.message);
+  });
 
 // Session lưu bền trong SQLite (khởi tạo sau initDatabase để bảng sessions đã có).
 const sessionStore = new SqliteSessionStore();

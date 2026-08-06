@@ -151,6 +151,25 @@ async function initCrawledAudienceSchema() {
       ADD COLUMN IF NOT EXISTS time_range TEXT NOT NULL DEFAULT 'lifetime'
   `;
 
+  // Chủ sở hữu (tenant) của ảnh chụp. ADD COLUMN IF NOT EXISTS vì bảng đã có dữ
+  // liệu thật trên Supabase.
+  //
+  // VÌ SAO CẦN: trước cột này, đường đọc lấy snapshot theo asset_id TOÀN CỤC —
+  // hai tài khoản cùng quản một Page sẽ thấy số liệu của nhau. Gắn chủ để đường
+  // đọc scope được theo tenant.
+  //
+  // NULL = snapshot cũ/của người vận hành (chưa gắn chủ). Đường đọc coi NULL là
+  // "dùng chung/legacy" để KHÔNG mất dữ liệu đã cào trước khi có cột này.
+  await db`
+    ALTER TABLE crawled_audience_snapshots
+      ADD COLUMN IF NOT EXISTS user_id BIGINT
+  `;
+
+  await db`
+    CREATE INDEX IF NOT EXISTS idx_crawled_snapshots_asset_user
+      ON crawled_audience_snapshots (asset_id, user_id, captured_at DESC)
+  `;
+
   console.log("[Postgres] Bảng crawled_audience_* sẵn sàng.");
 }
 
@@ -214,10 +233,39 @@ async function initCrawlJobsSchema() {
   console.log("[Postgres] Bảng crawl_jobs sẵn sàng.");
 }
 
+// Gán chủ sở hữu cho các snapshot CŨ chưa có user_id, suy từ crawl_jobs đã liên
+// kết (crawl_jobs.snapshot_id -> snapshots.id). Chạy MỘT LẦN lúc khởi động, SAU
+// khi cả bảng snapshots (đã thêm cột user_id) lẫn crawl_jobs đều sẵn sàng.
+//
+// Idempotent: chỉ đụng dòng user_id IS NULL và có job gắn user_id — chạy lại bao
+// nhiêu lần cũng vô hại. Snapshot cào bởi người vận hành (job.user_id = NULL) sẽ
+// giữ NULL và được đường đọc coi là "dùng chung/legacy".
+async function backfillSnapshotOwners() {
+  const db = getSql();
+  if (!db) {
+    return;
+  }
+
+  const rows = await db`
+    UPDATE crawled_audience_snapshots s
+    SET user_id = j.user_id
+    FROM crawl_jobs j
+    WHERE j.snapshot_id = s.id
+      AND s.user_id IS NULL
+      AND j.user_id IS NOT NULL
+    RETURNING s.id
+  `;
+
+  if (rows.length > 0) {
+    console.log(`[Postgres] Backfill chủ sở hữu cho ${rows.length} snapshot cào.`);
+  }
+}
+
 module.exports = {
   getSql,
   isEnabled,
   initAccountSchema,
   initCrawledAudienceSchema,
-  initCrawlJobsSchema
+  initCrawlJobsSchema,
+  backfillSnapshotOwners
 };

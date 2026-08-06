@@ -131,13 +131,17 @@ async function createJob({ userId, assetId, assetType, assetName, timeRange }) {
 
 // Lịch sử yêu cầu của một trang — giao diện hỏi liên tục cái này để cập nhật
 // tiến trình sau khi bấm nút.
-async function listJobs(assetId, limit = 10) {
+// Scope theo tenant: chỉ trả job của chính user (hoặc job legacy user_id IS NULL
+// do người vận hành đặt). Không có `userId` (phiên cũ / một người vận hành) thì
+// chỉ thấy job legacy — đúng hành vi đơn-người-dùng cũ, không lộ job người khác.
+async function listJobs(assetId, limit = 10, userId = null) {
   if (!isEnabled()) return [];
 
   const sql = getSql();
   const rows = await sql`
     SELECT * FROM crawl_jobs
     WHERE asset_id = ${String(assetId)}
+      AND (user_id = ${userId} OR user_id IS NULL)
     ORDER BY requested_at DESC
     LIMIT ${Math.max(1, Math.min(50, Number(limit) || 10))}
   `;
@@ -192,6 +196,23 @@ async function finishJob(jobId, { snapshotId, rowCount }) {
     WHERE id = ${Number(jobId)}
     RETURNING *
   `;
+
+  // Gán chủ sở hữu cho snapshot vừa tạo, suy từ user_id CỦA CHÍNH JOB NÀY — KHÔNG
+  // tin worker (worker không cầm user_id). Nhờ vậy đường đọc scope được theo
+  // tenant. Best-effort: hỏng thì backfillSnapshotOwners() lúc khởi động vá sau,
+  // KHÔNG làm fail lệnh finish (snapshot đã lưu an toàn, worker cần biết là xong).
+  if (row && snapshotId && row.user_id !== null && row.user_id !== undefined) {
+    try {
+      await sql`
+        UPDATE crawled_audience_snapshots
+        SET user_id = ${row.user_id}
+        WHERE id = ${Number(snapshotId)} AND user_id IS NULL
+      `;
+    } catch (error) {
+      console.warn("[Crawl] Không gán được chủ sở hữu snapshot:", error.message);
+    }
+  }
+
   return row ? toPublic(row) : null;
 }
 
