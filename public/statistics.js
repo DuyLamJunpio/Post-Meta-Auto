@@ -746,6 +746,9 @@ async function capNhatHuyHieuMay(badge) {
   try {
     const data = await fetchJson("/api/crawl/worker-status");
     const status = (data && data.status) || {};
+    // Ghi trạng thái mới nhất lên chính badge, để lúc bấm "Cào ngay" đọc lại
+    // mà cảnh báo — "1" bật, "0" tắt, "" chưa rõ (đừng cảnh báo khi chưa rõ).
+    badge.dataset.online = status.online ? "1" : "0";
     if (status.online) {
       const may = (status.workers || []).find((w) => w.online) || {};
       datHuyHieuMay(
@@ -760,6 +763,7 @@ async function capNhatHuyHieuMay(badge) {
       );
     }
   } catch {
+    badge.dataset.online = "";
     datHuyHieuMay(badge, "unknown", "○ Máy cào: không rõ", "");
   }
 }
@@ -811,6 +815,17 @@ async function buildToolbar(page) {
   datHuyHieuMay(huyHieuMay, "unknown", "○ Máy cào…", "");
 
   nutCao.addEventListener("click", async () => {
+    // Cảnh báo mềm (KHÔNG khoá nút): chỉ khi biết CHẮC chưa có máy cào nào bật
+    // ("0", không phải "" chưa rõ). Việc vẫn xếp hàng được — nhưng hỏi lại để
+    // người dùng khỏi tưởng đã cào xong trong khi job đang nằm chờ máy bật.
+    if (huyHieuMay.dataset.online === "0") {
+      const tiepTuc = window.confirm(
+        "Chưa có máy cào nào đang bật.\n\n" +
+        "Yêu cầu sẽ được xếp hàng và chỉ chạy khi bạn bật app cào trên máy mình " +
+        "(hướng dẫn ở trang Tài khoản).\n\nVẫn đặt yêu cầu?"
+      );
+      if (!tiepTuc) return;
+    }
     nutCao.disabled = true;
     trangThai.textContent = "Đang gửi yêu cầu…";
     try {
