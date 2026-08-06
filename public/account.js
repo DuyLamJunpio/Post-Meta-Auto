@@ -88,6 +88,7 @@
     signedInName.textContent = user.name ? `${user.name} · ${user.email}` : user.email;
     loadFacebookStatus();
     loadNotionStatus();
+    initWorkerTokens();
   }
 
   async function loadNotionStatus() {
@@ -193,6 +194,125 @@
       loadFacebookStatus();
     }
   });
+
+  // --- Token cho Công cụ cào (app tải về) ----------------------------------
+  const wkNameInput = document.querySelector("#wk-name");
+  const wkCreateBtn = document.querySelector("#wk-create");
+  const wkNewBox = document.querySelector("#wk-new");
+  const wkTokenEl = document.querySelector("#wk-token");
+  const wkCopyBtn = document.querySelector("#wk-copy");
+  const wkStatus = document.querySelector("#wk-status");
+  const wkList = document.querySelector("#wk-list");
+  const wkWebUrl = document.querySelector("#wk-web-url");
+
+  const ESC_MAP = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+  // Tên token do người dùng đặt -> phải thoát trước khi nhét vào innerHTML.
+  function esc(value) {
+    return String(value == null ? "" : value).replace(/[&<>"']/g, (c) => ESC_MAP[c]);
+  }
+
+  function fmtDate(value) {
+    if (!value) return "—";
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
+  }
+
+  function tokenTrangThai(t) {
+    if (t.revokedAt) return { text: "Đã thu hồi", cls: "text-slate-400" };
+    if (t.expiresAt && new Date(t.expiresAt).getTime() < Date.now()) {
+      return { text: "Hết hạn", cls: "text-rose-600" };
+    }
+    return { text: "Đang hoạt động", cls: "text-emerald-600" };
+  }
+
+  function renderTokenList(tokens) {
+    if (!tokens.length) {
+      wkList.innerHTML = '<p class="text-xs text-slate-400">Chưa có mã kết nối nào.</p>';
+      return;
+    }
+    wkList.innerHTML = tokens
+      .map((t) => {
+        const tt = tokenTrangThai(t);
+        const revokeBtn = t.revokedAt
+          ? ""
+          : `<button type="button" data-revoke="${esc(t.id)}" class="mt-2 rounded-lg border border-rose-200 px-2 py-1 text-[11px] font-medium text-rose-600 hover:bg-rose-50">Thu hồi</button>`;
+        return `
+        <div class="rounded-lg border border-slate-200 px-3 py-2">
+          <div class="flex items-center justify-between gap-2">
+            <span class="truncate text-sm font-medium text-slate-800">${esc(t.name || "(không tên)")}</span>
+            <span class="shrink-0 text-xs font-semibold ${tt.cls}">${tt.text}</span>
+          </div>
+          <p class="mt-0.5 font-mono text-[11px] text-slate-400">${esc(t.tokenPrefix)}…</p>
+          <p class="mt-1 text-[11px] text-slate-500">Tạo: ${fmtDate(t.createdAt)} · Hết hạn: ${fmtDate(t.expiresAt)} · Dùng lần cuối: ${fmtDate(t.lastUsedAt)}</p>
+          ${revokeBtn}
+        </div>`;
+      })
+      .join("");
+
+    wkList.querySelectorAll("[data-revoke]").forEach((btn) => {
+      btn.addEventListener("click", () => revokeWorkerToken(btn.getAttribute("data-revoke")));
+    });
+  }
+
+  async function loadWorkerTokens() {
+    try {
+      const res = await fetch("/account/worker-tokens");
+      const data = await res.json();
+      renderTokenList((data && data.tokens) || []);
+    } catch {
+      wkList.innerHTML = '<p class="text-xs text-rose-500">Không tải được danh sách mã.</p>';
+    }
+  }
+
+  async function revokeWorkerToken(id) {
+    wkStatus.textContent = "Đang thu hồi...";
+    try {
+      await postJson(`/account/worker-tokens/${id}/revoke`, {});
+      wkStatus.textContent = "Đã thu hồi mã.";
+      loadWorkerTokens();
+    } catch (error) {
+      wkStatus.textContent = error.message;
+    }
+  }
+
+  if (wkCreateBtn) {
+    wkCreateBtn.addEventListener("click", async () => {
+      wkCreateBtn.disabled = true;
+      wkStatus.textContent = "Đang tạo...";
+      try {
+        const data = await postJson("/account/worker-tokens", { name: wkNameInput.value.trim() });
+        // Token gốc chỉ trả về lần này -> hiện ngay, không lưu ở đâu khác.
+        wkTokenEl.textContent = data.token;
+        wkNewBox.classList.remove("hidden");
+        wkStatus.textContent = "";
+        wkNameInput.value = "";
+        loadWorkerTokens();
+      } catch (error) {
+        wkStatus.textContent = error.message;
+      } finally {
+        wkCreateBtn.disabled = false;
+      }
+    });
+  }
+
+  if (wkCopyBtn) {
+    wkCopyBtn.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(wkTokenEl.textContent || "");
+        wkCopyBtn.textContent = "Đã sao chép ✓";
+        setTimeout(() => {
+          wkCopyBtn.textContent = "Sao chép";
+        }, 1500);
+      } catch {
+        wkStatus.textContent = "Không sao chép được — hãy bôi đen mã và copy thủ công.";
+      }
+    });
+  }
+
+  function initWorkerTokens() {
+    if (wkWebUrl) wkWebUrl.textContent = window.location.origin;
+    loadWorkerTokens();
+  }
 
   async function postJson(url, body) {
     const res = await fetch(url, {
