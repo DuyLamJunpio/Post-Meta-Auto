@@ -4,6 +4,7 @@ const analyticsService = require("../services/analytics.service");
 const audienceService = require("../services/audience.service");
 const audienceExportService = require("../services/audience-export.service");
 const crawlJobsService = require("../services/crawl-jobs.service");
+const workerTokenService = require("../services/worker-token.service");
 const pageVisibilityService = require("../services/page-visibility.service");
 
 const router = express.Router();
@@ -167,6 +168,17 @@ router.get("/stats/pages/:pageId/audience/export", async (req, res, next) => {
 // và người dùng chọn được một khoảng mà máy chủ từ chối.
 router.get("/crawl/time-ranges", (_req, res) => {
   res.json({ success: true, timeRanges: crawlJobsService.TIME_RANGES });
+});
+
+// Trạng thái máy cào của tài khoản: có máy nào đang bật không (huy hiệu + khoá
+// nút "Cào ngay"). userId TỪ PHIÊN, không tin client.
+router.get("/crawl/worker-status", async (req, res, next) => {
+  try {
+    const status = await workerTokenService.getWorkerStatus(Number(req.session.userId) || null);
+    res.json({ success: true, status });
+  } catch (error) {
+    next(error);
+  }
 });
 
 // Đặt một yêu cầu cào. KHÔNG cào ngay tại đây — chỉ ghi vào hàng đợi.

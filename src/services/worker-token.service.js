@@ -145,10 +145,42 @@ async function recordHeartbeat({ userId, tokenId, hostname, appVersion, lastErro
   return { connectedLabel: hostname ? String(hostname).slice(0, 60) : "Đã kết nối" };
 }
 
+// "Online" = có nhịp tim trong vòng 90 giây. App hỏi hàng đợi mỗi ~10s (kể cả
+// khi rỗng) nên vẫn đập nhịp đều; 90s dung thứ vài nhịp lỡ mà không báo tắt oan.
+const ONLINE_WINDOW_MS = 90 * 1000;
+
+// Trạng thái các máy cào của MỘT user (cho huy hiệu "máy đang bật" + khoá nút).
+async function getWorkerStatus(userId) {
+  if (!isEnabled() || !userId) {
+    return { online: false, workers: [] };
+  }
+  const sql = getSql();
+  const rows = await sql`
+    SELECT hostname, app_version, last_seen_at, last_error, last_error_at
+    FROM crawl_workers
+    WHERE user_id = ${Number(userId)}
+    ORDER BY last_seen_at DESC NULLS LAST
+  `;
+  const now = Date.now();
+  const workers = rows.map((row) => {
+    const seen = row.last_seen_at ? new Date(row.last_seen_at).getTime() : 0;
+    return {
+      hostname: row.hostname,
+      appVersion: row.app_version,
+      lastSeenAt: row.last_seen_at,
+      lastError: row.last_error,
+      lastErrorAt: row.last_error_at,
+      online: now - seen < ONLINE_WINDOW_MS
+    };
+  });
+  return { online: workers.some((w) => w.online), workers };
+}
+
 module.exports = {
   issueToken,
   verifyToken,
   revokeToken,
   listTokens,
-  recordHeartbeat
+  recordHeartbeat,
+  getWorkerStatus
 };

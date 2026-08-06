@@ -724,9 +724,51 @@ function nutXuatFile(pageId) {
   ];
 }
 
+// Trạng thái "máy cào (app)" — theo TÀI KHOẢN, không theo Page. Cho người dùng
+// thấy app cào của họ đã kết nối chưa, để biết bấm "Cào ngay" có máy nhận việc
+// hay không. KHÔNG khoá nút: hàng đợi vẫn giữ việc chờ máy bật (và máy cũ chạy
+// đường Node chưa gửi nhịp tim nên sẽ hiện "chưa bật" dù đang chạy).
+let workerStatusTimer = null;
+
+function datHuyHieuMay(badge, variant, text, title) {
+  const mau = {
+    on: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    off: "border-slate-200 bg-slate-50 text-slate-500",
+    unknown: "border-slate-200 bg-slate-50 text-slate-400"
+  }[variant];
+  badge.className =
+    "inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs font-medium " + mau;
+  badge.textContent = text;
+  badge.title = title || "";
+}
+
+async function capNhatHuyHieuMay(badge) {
+  try {
+    const data = await fetchJson("/api/crawl/worker-status");
+    const status = (data && data.status) || {};
+    if (status.online) {
+      const may = (status.workers || []).find((w) => w.online) || {};
+      datHuyHieuMay(
+        badge, "on",
+        `● Máy cào đang bật${may.hostname ? " · " + may.hostname : ""}`,
+        'App cào trên máy bạn đang kết nối — bấm "Cào ngay" sẽ có máy nhận việc.'
+      );
+    } else {
+      datHuyHieuMay(
+        badge, "off", "○ Máy cào chưa bật",
+        "Chưa thấy app cào nào chạy. Tải app ở trang Tài khoản, dán mã kết nối rồi bật lên; việc cào sẽ chạy khi máy bật."
+      );
+    }
+  } catch {
+    datHuyHieuMay(badge, "unknown", "○ Máy cào: không rõ", "");
+  }
+}
+
 async function buildToolbar(page) {
   clearInterval(crawlTimer);
+  clearInterval(workerStatusTimer);
   crawlTimer = null;
+  workerStatusTimer = null;
   crawlToolbar.replaceChildren();
 
   if (!page) return;
@@ -764,6 +806,10 @@ async function buildToolbar(page) {
 
   const trangThai = el("span", { class: "text-xs text-slate-500" });
 
+  // Huy hiệu "máy cào (app) đang bật/tắt" — poll mỗi 15s ở cuối hàm.
+  const huyHieuMay = el("span", {});
+  datHuyHieuMay(huyHieuMay, "unknown", "○ Máy cào…", "");
+
   nutCao.addEventListener("click", async () => {
     nutCao.disabled = true;
     trangThai.textContent = "Đang gửi yêu cầu…";
@@ -790,6 +836,7 @@ async function buildToolbar(page) {
     oNguon,
     oThoiGian,
     nutCao,
+    huyHieuMay,
     trangThai,
     el("span", { class: "ml-auto text-xs font-medium text-slate-500", text: "Xuất:" }),
     ...nutXuatFile(page.id)
@@ -798,6 +845,10 @@ async function buildToolbar(page) {
   // Có việc đang dang dở từ lần trước (máy vừa bật lên chẳng hạn) thì hiện
   // ngay, đừng để người dùng bấm thêm một yêu cầu nữa cho cùng một trang.
   theoDoiJob(page.id, oNguon.value, trangThai, nutCao, { imLangKhiRong: true });
+
+  // Huy hiệu máy cào: hỏi ngay rồi lặp lại (máy có thể bật/tắt giữa chừng).
+  capNhatHuyHieuMay(huyHieuMay);
+  workerStatusTimer = setInterval(() => capNhatHuyHieuMay(huyHieuMay), 15000);
 }
 
 function hienTrangThaiJob(trangThai, job, daCoSan) {
