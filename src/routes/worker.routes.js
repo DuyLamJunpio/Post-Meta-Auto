@@ -156,6 +156,17 @@ router.get("/v1/assets", async (req, res, next) => {
   }
 });
 
+// Danh sách việc GẦN ĐÂY của user gắn token — cho app cào hiện "công việc đã
+// lên lịch / đang chạy / vừa xong". userId TỪ TOKEN (không tin client).
+router.get("/v1/jobs", async (req, res, next) => {
+  try {
+    const jobs = await crawlJobsService.listJobsForUser(req.workerUserId, req.query.limit);
+    res.json({ success: true, data: { jobs } });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Nhận một snapshot nhân khẩu học đã cào. BẮT BUỘC kèm jobId: verify job thuộc
 // đúng user VÀ assetId khớp job (chống ghi số liệu cho asset không thuộc việc).
 router.post("/v1/snapshots", async (req, res, next) => {

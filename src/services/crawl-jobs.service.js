@@ -152,6 +152,23 @@ async function listJobs(assetId, limit = 10, userId = null) {
   return rows.map(toPublic);
 }
 
+// Danh sách job GẦN ĐÂY của MỘT user — mọi asset, mọi trạng thái — để app cào
+// hiện "công việc đã lên lịch / đang chạy / vừa xong". CHỈ job của chính user
+// (token khách scope 'crawl' KHÔNG thấy job admin/legacy user_id NULL, nhất
+// quán với ownerFilter). Không có userId -> rỗng, không lộ gì.
+async function listJobsForUser(userId, limit = 20) {
+  if (!isEnabled() || !userId) return [];
+
+  const sql = getSql();
+  const rows = await sql`
+    SELECT * FROM crawl_jobs
+    WHERE user_id = ${Number(userId)}
+    ORDER BY requested_at DESC
+    LIMIT ${Math.max(1, Math.min(100, Number(limit) || 20))}
+  `;
+  return rows.map(toPublic);
+}
+
 async function getJob(jobId) {
   if (!isEnabled()) return null;
 
@@ -290,6 +307,7 @@ module.exports = {
   CrawlJobError,
   createJob,
   listJobs,
+  listJobsForUser,
   getJob,
   getJobForWorker,
   claimNextJob,
