@@ -184,6 +184,14 @@ const config = {
       .map((scope) => scope.trim())
       .filter(Boolean)
   },
+  // Bản tải công cụ cào (.exe) cho khách ngoài. downloadUrl TRỐNG => web hiện
+  // "Sắp có", KHÔNG dựng link chết. File .exe host ở NGOÀI (GitHub Release...) —
+  // web chỉ chuyển hướng, KHÔNG nhúng binary vào repo/đĩa Render (đĩa Render bị
+  // xoá mỗi deploy, và commit binary làm phình repo).
+  crawler: {
+    downloadUrl: String(process.env.CRAWLER_DOWNLOAD_URL || "").trim(),
+    version: String(process.env.CRAWLER_VERSION || "").trim()
+  },
   mediaProxy: {
     // Host công khai để phát lại media Drive cho IG/GBP/TikTok fetch. Trống = tắt (localhost).
     publicBaseUrl,

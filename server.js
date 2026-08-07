@@ -21,6 +21,7 @@ const leadRoutes = require("./src/routes/lead.routes");
 const accountRoutes = require("./src/routes/account.routes");
 const { initAccountSchema, initCrawledAudienceSchema, initCrawlJobsSchema, initWorkerSchema, backfillSnapshotOwners } = require("./src/db/postgres");
 const workerRoutes = require("./src/routes/worker.routes");
+const crawlerRoutes = require("./src/routes/crawler.routes");
 const crawlJobsService = require("./src/services/crawl-jobs.service");
 const mediaRoutes = require("./src/routes/media.routes");
 const googleDriveService = require("./src/services/google-drive.service");
@@ -119,6 +120,10 @@ app.use("/lead", leadRoutes.publicRouter);
 // API cho app cào tải về: gác bằng TOKEN worker (không cookie) -> đặt TRƯỚC
 // requireAuth. Router tự gắn enforceHttps + requireWorkerToken + rate-limit.
 app.use("/worker", workerRoutes);
+
+// Tải công cụ cào (.exe) cho khách ngoài: CÔNG KHAI (trang hướng dẫn không
+// yêu cầu đăng nhập) -> đặt TRƯỚC requireAuth.
+app.use("/crawler", crawlerRoutes);
 
 app.use("/api", requireAuth);
 app.use("/api", leadRoutes.adminRouter);

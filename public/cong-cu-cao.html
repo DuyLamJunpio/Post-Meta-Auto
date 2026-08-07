@@ -71,17 +71,29 @@ python -m src.worker          <span class="text-slate-400"># chạy nền liên 
         <div class="flex items-center gap-3">
           <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-200 text-sm font-bold text-slate-600">3</span>
           <h2 class="text-sm font-semibold text-slate-800">Chạy bằng bản đóng gói (.exe)</h2>
-          <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">Sắp có</span>
+          <span id="exe-badge" class="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">Sắp có</span>
         </div>
         <p class="mt-2 pl-10 text-sm text-slate-600">
-          Bản <span class="font-mono">.exe</span> để tải về một-cú-nhấp (không cần cài Python) đang được đóng gói. Cách dùng khi có bản tải:
+          Bản <span class="font-mono">.exe</span> để tải về một-cú-nhấp (không cần cài Python). Cách dùng:
         </p>
         <ul class="mt-2 space-y-1.5 pl-10 text-sm text-slate-600">
           <li class="flex gap-2"><span class="text-slate-400">•</span> Tải file <span class="font-mono">meta-crawler.exe</span> về một thư mục.</li>
           <li class="flex gap-2"><span class="text-slate-400">•</span> Đặt file <span class="font-mono">.env</span> (2 dòng như bước 2) <span class="font-medium">cạnh</span> file <span class="font-mono">.exe</span>.</li>
           <li class="flex gap-2"><span class="text-slate-400">•</span> Nhấp đúp để chạy — cửa sổ đen hiện log cho biết nó đang cào.</li>
         </ul>
-        <p class="mt-3 pl-10 text-xs text-slate-400">Nút tải sẽ xuất hiện ở đây khi bản đóng gói sẵn sàng.</p>
+
+        <!-- Nút tải thật: chỉ hiện khi web đã cấu hình nơi host (CRAWLER_DOWNLOAD_URL). -->
+        <div id="exe-tai" class="mt-3 hidden pl-10">
+          <a id="exe-link" href="/crawler/download" class="inline-flex items-center gap-2 rounded-lg bg-brand-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-600">
+            <span>⬇</span> Tải công cụ cào (.exe)
+          </a>
+          <span id="exe-version" class="ml-2 text-xs text-slate-400"></span>
+          <p class="mt-2 text-[11px] text-slate-400">
+            Windows có thể cảnh báo “nhà phát hành không xác định” — bấm <span class="font-medium">Thêm thông tin → Vẫn chạy</span> để tiếp tục.
+          </p>
+        </div>
+
+        <p id="exe-note" class="mt-3 pl-10 text-xs text-slate-400">Nút tải sẽ xuất hiện ở đây khi bản đóng gói sẵn sàng.</p>
       </section>
 
       <!-- Bước 4: kiểm chứng -->
@@ -114,6 +126,26 @@ python -m src.worker          <span class="text-slate-400"># chạy nền liên 
       // Điền địa chỉ web thật (đúng domain khách đang mở) vào ô WEB_APP_URL mẫu,
       // để copy-paste vào .env là chạy — không phải sửa tay domain.
       document.getElementById("env-url").textContent = window.location.origin;
+
+      // Hỏi web đã có bản tải chưa. Có -> hiện nút tải thật, đổi huy hiệu sang
+      // "Có bản tải"; chưa -> giữ nguyên "Sắp có". Không đặt link chết.
+      fetch("/crawler/download/status")
+        .then((res) => res.json())
+        .then((data) => {
+          if (!data || !data.available) return;
+          document.getElementById("exe-tai").classList.remove("hidden");
+          document.getElementById("exe-note").classList.add("hidden");
+          const badge = document.getElementById("exe-badge");
+          badge.textContent = "Có bản tải";
+          badge.className =
+            "rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700";
+          if (data.version) {
+            document.getElementById("exe-version").textContent = "Phiên bản " + data.version;
+          }
+        })
+        .catch(() => {
+          /* không hỏi được trạng thái -> cứ để "Sắp có", không chặn gì */
+        });
     </script>
   </body>
 </html>
