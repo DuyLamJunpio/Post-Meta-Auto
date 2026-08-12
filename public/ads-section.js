@@ -1,27 +1,26 @@
-// Tab "Quảng cáo" của trang Thống kê.
+// Tab "Quảng cáo" của trang Thống kê — TRỤC PAGE.
 //
-// Gọi /api/ads/* theo hợp đồng envelope:
-//   GET /api/ads/accounts
-//       -> { success, accounts:[{id, accountId, name, currency, status, timezone, business}] }
-//   GET /api/ads/accounts/:adAccountId/campaigns
-//       -> { success, campaigns:[{id, name, objective, status, effectiveStatus, ...}] }
-//   GET /api/ads/campaigns/:campaignId/insights?adAccountId=act_...&datePreset=last_30d
-//       -> { success, adsInsights:{ available, currency, overview:{...}, daily:[...], warnings:[], source, capturedAt } }
-//   GET /api/ads/campaigns/:campaignId/demographics?adAccountId=act_...&datePreset=last_30d
-//       -> { success, demographics:{ ageGender:{available, ages, genders, segments[{age,gender,impressions,reach,share}]},
-//                                    country:{available, items[{value,impressions,reach,share}]},
-//                                    region:{available, items[...]}, currency, warnings, source, capturedAt } }
-//       Mỗi chiều nhân khẩu học best-effort: available:false + reason nếu thiếu quyền/không hỗ trợ.
+// Cấu trúc hiển thị: mỗi Page (bạn quản lý) → các chiến dịch quảng bá Page đó (kèm huy
+// hiệu trạng thái Đang chạy / Tạm dừng / Đã dừng) → bấm 1 chiến dịch để xem KẾT QUẢ +
+// NHÂN KHẨU HỌC (tải lười, chỉ gọi khi mở). Vì Marketing API không gắn chiến dịch vào
+// Page, backend suy Page từ creative của ads (xem ads-pages.service + getAdsPageMap).
 //
-// TỰ CHỨA vòng đời Chart.js: mỗi lần mount có mảng `charts` riêng và hàm
-// destroyCharts() gọi TRƯỚC mỗi lần vẽ (và khi rời tab). Chart.js đã được nạp
-// UMD (biến toàn cục `Chart`) trong statistics.html — module này tham chiếu
-// trực tiếp như statistics.js. Không dùng innerHTML với dữ liệu API: mọi node
-// dựng qua el() từ /shared/api.js.
+// Hợp đồng envelope:
+//   GET /api/ads/pages-tree
+//     -> { success, tree:{ groups:[{ pageId, pageName, managed, campaigns:[{id,name,runState,
+//          effectiveStatus,adAccountId,adAccountName}], counts:{active,paused,stopped} }],
+//          totalCampaigns, accountCount, warnings, capturedAt } }
+//   GET /api/ads/campaigns/:id/insights?adAccountId=act_...&datePreset=...
+//     -> { success, adsInsights:{ available, currency, overview, daily, warnings, capturedAt } }
+//   GET /api/ads/campaigns/:id/demographics?adAccountId=act_...&datePreset=...
+//     -> { success, demographics:{ ageGender, country, region, warnings, ... } }
 //
-// XUẤT BÁO CÁO: sau khi tải, người dùng có thể xuất CSV/JSON của đúng báo cáo đang xem
-// (insights + nhân khẩu học) — logic serialize nằm ở module thuần /ads-export.js, phần này
-// chỉ giữ state báo cáo cuối và kích hoạt tải file phía trình duyệt.
+// TỰ CHỨA vòng đời Chart.js: mảng `charts` + destroyCharts() gọi trước mỗi lần vẽ và khi
+// rời tab. CHỈ mở 1 chiến dịch chi tiết tại một thời điểm để đơn giản vòng đời chart.
+// Không dùng innerHTML với dữ liệu API: mọi node dựng qua el() từ /shared/api.js.
+//
+// XUẤT BÁO CÁO: mỗi chiến dịch đang mở có nút Xuất CSV/JSON — serialize ở module thuần
+// /ads-export.js, phần này chỉ kích hoạt tải file phía trình duyệt.
 
 import { fetchJson, el } from "/shared/api.js";
 import { buildReportModel, reportToCsv, reportToJson, buildReportFilename } from "/ads-export.js";
@@ -45,7 +44,6 @@ function fmtPercent(value, digits = 2) {
   return `${fmtNum(value, digits)}%`;
 }
 
-// Tiền tệ theo mã ISO trả về từ API (VND, USD…). Mã lạ -> số thường + hậu tố.
 function fmtMoney(value, currency) {
   const num = Number(value);
   if (!Number.isFinite(num)) {
@@ -61,7 +59,6 @@ function fmtMoney(value, currency) {
   return fmtNum(num, 2);
 }
 
-// Nhãn trục X: "dd/MM" từ chuỗi ngày "YYYY-MM-DD".
 function fmtDateLabel(dateStr) {
   if (!dateStr) return "";
   const d = new Date(dateStr);
@@ -92,33 +89,31 @@ const DATE_PRESETS = [
 ];
 const DEFAULT_PRESET = "last_30d";
 
-// Nhãn tiếng Việt cho trạng thái chiến dịch (effectiveStatus của Marketing API).
-const STATUS_LABELS = {
-  ACTIVE: "Đang chạy",
-  PAUSED: "Tạm dừng",
-  DELETED: "Đã xóa",
-  ARCHIVED: "Lưu trữ",
-  IN_PROCESS: "Đang xử lý",
-  WITH_ISSUES: "Có vấn đề",
-  CAMPAIGN_PAUSED: "Chiến dịch tạm dừng",
-  ADSET_PAUSED: "Nhóm QC tạm dừng",
-  DISAPPROVED: "Bị từ chối",
-  PENDING_REVIEW: "Chờ duyệt",
-  PREAPPROVED: "Duyệt sơ bộ",
-  PENDING_BILLING_INFO: "Chờ thông tin thanh toán"
+function presetLabel(value) {
+  const found = DATE_PRESETS.find((p) => p.value === value);
+  return found ? found.label : value;
+}
+
+// --- Trạng thái chạy (3 nhóm thô, khớp ads-math.classifyRunState) -----------
+
+const RUN_STATE = {
+  active: { label: "Đang chạy", dot: "🟢", badge: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+  paused: { label: "Tạm dừng", dot: "⏸️", badge: "border-amber-200 bg-amber-50 text-amber-700" },
+  stopped: { label: "Đã dừng", dot: "⏹️", badge: "border-slate-200 bg-slate-100 text-slate-600" }
 };
 
-function statusLabel(status) {
-  return STATUS_LABELS[status] || status;
-}
+const STATUS_FILTERS = [
+  { value: "all", label: "Tất cả trạng thái" },
+  { value: "active", label: "Đang chạy" },
+  { value: "paused", label: "Tạm dừng" },
+  { value: "stopped", label: "Đã dừng" }
+];
 
 const BRAND = "#1877f2";
 const AMBER = "#f59e0b";
 
-// Nhãn + màu giới tính (giá trị Graph: male/female/unknown).
 const GENDER_LABELS = { female: "Nữ", male: "Nam", unknown: "Không rõ" };
 const GENDER_COLORS = { female: "#ec4899", male: BRAND, unknown: "#94a3b8" };
-// Bảng màu cho biểu đồ thanh xếp hạng (top quốc gia / vùng).
 const BAR_PALETTE = [
   "#1877f2", "#f59e0b", "#10b981", "#8b5cf6", "#ec4899",
   "#06b6d4", "#f43f5e", "#84cc16", "#eab308", "#64748b"
@@ -187,6 +182,25 @@ function emptyNote(text) {
   return el("div", { class: "flex h-72 items-center justify-center text-sm text-slate-400", text });
 }
 
+// Huy hiệu trạng thái chiến dịch.
+function statusBadge(runState) {
+  const info = RUN_STATE[runState] || RUN_STATE.stopped;
+  return el("span", {
+    class: `inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${info.badge}`,
+    text: `${info.dot} ${info.label}`
+  });
+}
+
+// Chip đếm nhỏ (dùng ở tiêu đề Page): dot + số.
+function countChip(runState, count) {
+  const info = RUN_STATE[runState];
+  return el(
+    "span",
+    { class: "inline-flex items-center gap-1 text-xs text-slate-500", attrs: { title: info.label } },
+    [el("span", { text: info.dot }), el("span", { class: "font-medium", text: String(count) })]
+  );
+}
+
 // --- Điểm vào: dựng toàn bộ tab Quảng cáo vào rootEl -----------------------
 
 export function mountAdsSection(rootEl) {
@@ -204,16 +218,6 @@ export function mountAdsSection(rootEl) {
   }
 
   // --- Controls ---
-  const accountSelect = el(
-    "select",
-    { class: selectClass(), attrs: { id: "ads-account-select", "aria-label": "Chọn tài khoản quảng cáo" } },
-    [el("option", { text: "Đang tải tài khoản…", attrs: { value: "" } })]
-  );
-  const campaignSelect = el(
-    "select",
-    { class: selectClass(), attrs: { id: "ads-campaign-select", "aria-label": "Chọn chiến dịch" } },
-    [el("option", { text: "—", attrs: { value: "" } })]
-  );
   const datePresetSelect = el(
     "select",
     { class: selectClass(), attrs: { id: "ads-datepreset-select", "aria-label": "Khoảng thời gian" } },
@@ -221,178 +225,287 @@ export function mountAdsSection(rootEl) {
   );
   datePresetSelect.value = DEFAULT_PRESET;
 
-  const loadBtn = el("button", {
+  const statusFilter = el(
+    "select",
+    { class: selectClass(), attrs: { id: "ads-status-filter", "aria-label": "Lọc trạng thái" } },
+    STATUS_FILTERS.map((o) => el("option", { text: o.label, attrs: { value: o.value } }))
+  );
+
+  const refreshBtn = el("button", {
     class: "rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-600 disabled:opacity-50",
-    text: "Tải",
+    text: "Làm mới",
     attrs: { type: "button" }
   });
 
   const controls = card([
-    cardHeading("Báo cáo quảng cáo Meta", "Chọn tài khoản, chiến dịch và khoảng thời gian rồi bấm Tải."),
+    cardHeading(
+      "Báo cáo quảng cáo theo Page",
+      "Mỗi Page → các chiến dịch (kèm trạng thái). Bấm một chiến dịch để xem kết quả & nhân khẩu học."
+    ),
     el("div", { class: "flex flex-wrap items-end gap-3" }, [
-      labeledField("Tài khoản", accountSelect),
-      labeledField("Chiến dịch", campaignSelect),
       labeledField("Khoảng thời gian", datePresetSelect),
-      loadBtn
+      labeledField("Lọc trạng thái", statusFilter),
+      refreshBtn
     ])
   ]);
 
   const statusEl = el("p", { class: "text-sm text-slate-500", attrs: { "aria-live": "polite" } });
-  // Thanh nút xuất báo cáo — trống cho tới khi có báo cáo khả dụng để xuất.
-  const exportBar = el("div", { class: "flex flex-wrap items-center gap-2" });
   const warningsEl = el("div", { class: "space-y-2" });
-  const reportEl = el("div", { class: "space-y-6", attrs: { id: "ads-report" } });
+  const treeEl = el("div", { class: "space-y-3", attrs: { id: "ads-page-tree" } });
 
-  rootEl.replaceChildren(controls, statusEl, exportBar, warningsEl, reportEl);
+  rootEl.replaceChildren(controls, statusEl, warningsEl, treeEl);
 
   // --- State ---
-  let accounts = [];
-  // Báo cáo đang xem (để xuất file). Đặt lại mỗi lần Tải; demographics tải sau nên cập nhật riêng.
-  let lastInsights = null;
-  let lastDemographics = null;
-  let lastContext = null;
+  let currentTree = null;
+  // Chi tiết chiến dịch đang mở (chỉ 1 tại một thời điểm).
+  let openDetailEl = null;
+  let openToggleBtn = null;
+  let openChevron = null;
+  let openState = null; // { insights, demographics, context }
 
-  // --- Tải danh sách tài khoản quảng cáo ---
-  async function loadAccounts() {
-    statusEl.textContent = "Đang tải danh sách tài khoản quảng cáo…";
-    try {
-      const data = await fetchJson("/api/ads/accounts");
-      accounts = (data && data.accounts) || [];
-      accountSelect.replaceChildren();
-
-      if (accounts.length === 0) {
-        accountSelect.append(el("option", { text: "Không có tài khoản quảng cáo", attrs: { value: "" } }));
-        campaignSelect.replaceChildren(el("option", { text: "—", attrs: { value: "" } }));
-        statusEl.textContent =
-          "Tài khoản Facebook đang đăng nhập không có tài khoản quảng cáo nào (hoặc thiếu quyền ads_read).";
-        loadBtn.disabled = true;
-        return;
-      }
-
-      for (const acc of accounts) {
-        const bits = [acc.name || acc.accountId || acc.id];
-        if (acc.currency) bits.push(acc.currency);
-        accountSelect.append(el("option", { text: bits.join(" · "), attrs: { value: acc.id } }));
-      }
-      statusEl.textContent = "";
-      await loadCampaigns(accountSelect.value);
-    } catch (error) {
-      statusEl.textContent = `Không tải được tài khoản quảng cáo: ${error.message}`;
-      loadBtn.disabled = true;
-    }
-  }
-
-  // --- Tải chiến dịch của 1 tài khoản ---
-  async function loadCampaigns(adAccountId) {
-    if (!adAccountId) return;
-    campaignSelect.replaceChildren(el("option", { text: "Đang tải chiến dịch…", attrs: { value: "" } }));
-    loadBtn.disabled = true;
-    try {
-      const data = await fetchJson(`/api/ads/accounts/${encodeURIComponent(adAccountId)}/campaigns`);
-      const campaigns = (data && data.campaigns) || [];
-      campaignSelect.replaceChildren();
-
-      if (campaigns.length === 0) {
-        campaignSelect.append(el("option", { text: "Không có chiến dịch", attrs: { value: "" } }));
-        loadBtn.disabled = true;
-        return;
-      }
-
-      for (const c of campaigns) {
-        const status = c.effectiveStatus || c.status;
-        const suffix = status && status !== "ACTIVE" ? ` · ${statusLabel(status)}` : "";
-        campaignSelect.append(el("option", { text: `${c.name || c.id}${suffix}`, attrs: { value: c.id } }));
-      }
-      loadBtn.disabled = false;
-    } catch (error) {
-      campaignSelect.replaceChildren(el("option", { text: "Lỗi tải chiến dịch", attrs: { value: "" } }));
-      statusEl.textContent = `Không tải được chiến dịch: ${error.message}`;
-      loadBtn.disabled = true;
-    }
-  }
-
-  // --- Tải số liệu insights của chiến dịch đang chọn ---
-  async function loadInsights() {
-    const adAccountId = accountSelect.value;
-    const campaignId = campaignSelect.value;
-    if (!adAccountId || !campaignId) {
-      statusEl.textContent = "Hãy chọn tài khoản và chiến dịch trước khi tải.";
-      return;
-    }
-    const datePreset = datePresetSelect.value || DEFAULT_PRESET;
-
-    destroyCharts();
-    reportEl.replaceChildren();
-    warningsEl.replaceChildren();
-    exportBar.replaceChildren();
-    lastInsights = null;
-    lastDemographics = null;
-    lastContext = null;
-    loadBtn.disabled = true;
-    statusEl.textContent = "Đang tải số liệu quảng cáo…";
-
-    try {
-      const url =
-        `/api/ads/campaigns/${encodeURIComponent(campaignId)}/insights` +
-        `?adAccountId=${encodeURIComponent(adAccountId)}&datePreset=${encodeURIComponent(datePreset)}`;
-      const data = await fetchJson(url);
-      lastInsights = data.adsInsights || null;
-      lastContext = currentContext();
-      renderInsights(data.adsInsights);
-      // Nhân khẩu học chỉ có nghĩa khi insights khả dụng (cùng điều kiện quyền).
-      if (data.adsInsights && data.adsInsights.available) {
-        buildExportButtons();
-        await loadDemographics(campaignId, adAccountId, datePreset);
-      }
-    } catch (error) {
-      statusEl.textContent = `Lỗi: ${error.message}`;
-    } finally {
-      loadBtn.disabled = false;
-    }
-  }
-
-  // --- Cảnh báo (cùng kiểu trang thống kê) ---
-  // Thêm 1 cảnh báo, chống trùng chính xác (insights + nhân khẩu học có thể sinh cùng câu).
-  function appendWarning(text) {
-    const already = Array.from(warningsEl.querySelectorAll("span")).some(
+  // --- Cảnh báo (dedupe theo container) ---
+  function appendWarning(container, text) {
+    const already = Array.from(container.querySelectorAll("span")).some(
       (node) => node.textContent === `⚠️ ${text}`
     );
     if (already) return;
-    warningsEl.append(
+    container.append(
       el("div", { class: "rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800" }, [
         el("span", { text: `⚠️ ${text}` })
       ])
     );
   }
 
-  function renderWarnings(warnings) {
+  // --- Tải cây Page → chiến dịch ---
+  async function loadTree() {
+    closeOpenDetail();
+    destroyCharts();
+    treeEl.replaceChildren();
     warningsEl.replaceChildren();
-    for (const warning of warnings || []) {
-      appendWarning(warning);
+    statusEl.textContent = "Đang tải danh sách Page & chiến dịch…";
+    refreshBtn.disabled = true;
+    try {
+      const data = await fetchJson("/api/ads/pages-tree");
+      currentTree = (data && data.tree) || null;
+      renderTree(currentTree);
+    } catch (error) {
+      statusEl.textContent = `Không tải được danh sách: ${error.message}`;
+    } finally {
+      refreshBtn.disabled = false;
     }
   }
 
-  // --- Render KPI + biểu đồ từ adsInsights ---
-  function renderInsights(insights) {
-    if (!insights) {
-      statusEl.textContent = "Máy chủ không trả về dữ liệu quảng cáo.";
+  function renderTree(tree) {
+    warningsEl.replaceChildren();
+    treeEl.replaceChildren();
+    if (!tree) {
+      statusEl.textContent = "Máy chủ không trả về dữ liệu.";
       return;
     }
+    for (const warning of tree.warnings || []) {
+      appendWarning(warningsEl, warning);
+    }
 
-    renderWarnings(insights.warnings);
+    const groups = tree.groups || [];
+    statusEl.textContent =
+      `${groups.length} Page · ${tree.totalCampaigns || 0} chiến dịch · ` +
+      `${tree.accountCount || 0} tài khoản QC` +
+      (tree.capturedAt ? ` · lúc ${fmtDateTime(tree.capturedAt)}` : "");
 
-    const sourceLabel = insights.source === "cache" ? "bộ nhớ đệm" : "Graph API";
-    const captured = insights.capturedAt ? ` · lúc ${fmtDateTime(insights.capturedAt)}` : "";
-    statusEl.textContent = `Nguồn: ${sourceLabel}${captured}.`;
+    const filter = statusFilter.value || "all";
+    let shown = 0;
+    for (const group of groups) {
+      const campaigns =
+        filter === "all" ? group.campaigns : (group.campaigns || []).filter((c) => c.runState === filter);
+      // Khi lọc trạng thái: ẩn Page không có chiến dịch khớp.
+      if (filter !== "all" && campaigns.length === 0) {
+        continue;
+      }
+      treeEl.append(renderPageGroup(group, campaigns));
+      shown += 1;
+    }
+
+    if (shown === 0) {
+      treeEl.append(
+        card([emptyNote(filter === "all" ? "Không có Page/chiến dịch nào." : "Không có chiến dịch khớp bộ lọc.")])
+      );
+    }
+  }
+
+  function renderPageGroup(group, campaigns) {
+    const chevron = el("span", { class: "text-slate-400", text: "▾" });
+    const listEl = el("div", { class: "divide-y divide-slate-100 border-t border-slate-100" });
+
+    const header = el(
+      "button",
+      {
+        class: "flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50",
+        attrs: { type: "button", "aria-expanded": "true" }
+      },
+      [
+        chevron,
+        el("span", { class: "flex-1" }, [
+          el("span", { class: "text-sm font-semibold text-slate-900", text: group.pageName }),
+          group.managed
+            ? null
+            : el("span", { class: "ml-2 text-xs text-slate-400", text: "(Page ngoài / chưa xác định)" })
+        ]),
+        el("span", { class: "flex items-center gap-3" }, [
+          countChip("active", group.counts.active),
+          countChip("paused", group.counts.paused),
+          countChip("stopped", group.counts.stopped)
+        ])
+      ]
+    );
+
+    header.addEventListener("click", () => {
+      const hidden = listEl.classList.toggle("hidden");
+      chevron.textContent = hidden ? "▸" : "▾";
+      header.setAttribute("aria-expanded", hidden ? "false" : "true");
+    });
+
+    if (campaigns.length === 0) {
+      listEl.append(el("p", { class: "px-4 py-3 text-sm text-slate-400", text: "Chưa có chiến dịch." }));
+    } else {
+      for (const campaign of campaigns) {
+        listEl.append(renderCampaignRow(campaign));
+      }
+    }
+
+    return el("div", { class: "overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" }, [
+      header,
+      listEl
+    ]);
+  }
+
+  function renderCampaignRow(campaign) {
+    const detail = el("div", { class: "hidden bg-slate-50/60 px-4 py-4" });
+    const chevron = el("span", { class: "text-slate-300", text: "▸" });
+
+    const toggle = el(
+      "button",
+      {
+        class: "flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50",
+        attrs: { type: "button", "aria-expanded": "false" }
+      },
+      [
+        chevron,
+        statusBadge(campaign.runState),
+        el("span", { class: "flex-1 text-sm font-medium text-slate-800", text: campaign.name || campaign.id }),
+        el("span", { class: "text-xs text-slate-400", text: campaign.adAccountName || "" })
+      ]
+    );
+
+    toggle.addEventListener("click", () => {
+      if (openDetailEl === detail) {
+        closeOpenDetail();
+      } else {
+        openCampaignDetail(campaign, detail, toggle, chevron);
+      }
+    });
+
+    return el("div", {}, [toggle, detail]);
+  }
+
+  // --- Chi tiết 1 chiến dịch (kết quả + nhân khẩu học), tải lười ---
+
+  function closeOpenDetail() {
+    if (openDetailEl) {
+      destroyCharts();
+      openDetailEl.replaceChildren();
+      openDetailEl.classList.add("hidden");
+    }
+    if (openToggleBtn) {
+      openToggleBtn.setAttribute("aria-expanded", "false");
+    }
+    if (openChevron) {
+      openChevron.textContent = "▸";
+    }
+    openDetailEl = null;
+    openToggleBtn = null;
+    openChevron = null;
+    openState = null;
+  }
+
+  async function openCampaignDetail(campaign, detail, toggle, chevron) {
+    closeOpenDetail();
+    destroyCharts();
+
+    openDetailEl = detail;
+    openToggleBtn = toggle;
+    openChevron = chevron;
+    toggle.setAttribute("aria-expanded", "true");
+    chevron.textContent = "▾";
+    detail.classList.remove("hidden");
+    detail.replaceChildren(el("p", { class: "text-sm text-slate-500", text: "Đang tải kết quả…" }));
+
+    const datePreset = datePresetSelect.value || DEFAULT_PRESET;
+    const context = {
+      campaignId: campaign.id,
+      campaignName: campaign.name,
+      adAccountId: campaign.adAccountId,
+      accountName: campaign.adAccountName,
+      datePreset,
+      datePresetLabel: presetLabel(datePreset)
+    };
+    const state = { insights: null, demographics: null, context };
+    openState = state;
+
+    try {
+      const url =
+        `/api/ads/campaigns/${encodeURIComponent(campaign.id)}/insights` +
+        `?adAccountId=${encodeURIComponent(campaign.adAccountId)}&datePreset=${encodeURIComponent(datePreset)}`;
+      const data = await fetchJson(url);
+      // Người dùng có thể đã đóng/mở chiến dịch khác trong lúc chờ -> bỏ kết quả cũ.
+      if (openState !== state) return;
+      state.insights = data.adsInsights;
+
+      detail.replaceChildren();
+      const warnBox = el("div", { class: "mb-3 space-y-2" });
+      const body = el("div", { class: "space-y-6" });
+      detail.append(warnBox, body);
+
+      renderInsights(body, warnBox, data.adsInsights, state);
+
+      if (data.adsInsights && data.adsInsights.available) {
+        const demoUrl =
+          `/api/ads/campaigns/${encodeURIComponent(campaign.id)}/demographics` +
+          `?adAccountId=${encodeURIComponent(campaign.adAccountId)}&datePreset=${encodeURIComponent(datePreset)}`;
+        try {
+          const demoData = await fetchJson(demoUrl);
+          if (openState !== state) return;
+          state.demographics = demoData.demographics;
+          renderDemographics(body, warnBox, demoData.demographics);
+        } catch (error) {
+          body.append(
+            card([
+              cardHeading("Nhân khẩu học người xem quảng cáo", "Không tải được nhân khẩu học."),
+              el("p", { class: "text-sm text-slate-500", text: `Lỗi: ${error.message}` })
+            ])
+          );
+        }
+      }
+    } catch (error) {
+      if (openState !== state) return;
+      detail.replaceChildren(el("p", { class: "text-sm text-rose-600", text: `Lỗi: ${error.message}` }));
+    }
+  }
+
+  // --- Render KẾT QUẢ (insights) vào body ---
+  function renderInsights(body, warnBox, insights, state) {
+    if (!insights) {
+      body.append(el("p", { class: "text-sm text-slate-500", text: "Máy chủ không trả về dữ liệu quảng cáo." }));
+      return;
+    }
+    for (const warning of insights.warnings || []) {
+      appendWarning(warnBox, warning);
+    }
 
     if (!insights.available) {
-      reportEl.replaceChildren(
+      body.append(
         card([
           cardHeading("Chưa có số liệu", "Chiến dịch / khoảng thời gian này chưa có dữ liệu quảng cáo."),
-          el("p", {
-            class: "text-sm text-slate-500",
-            text: "Thử đổi khoảng thời gian hoặc chọn chiến dịch khác."
-          })
+          el("p", { class: "text-sm text-slate-500", text: "Thử đổi khoảng thời gian ở trên rồi mở lại." })
         ])
       );
       return;
@@ -401,8 +514,18 @@ export function mountAdsSection(rootEl) {
     const overview = insights.overview || {};
     const currency = insights.currency || null;
 
-    // KPI tiles: 9 chỉ số theo lưới 3 cột.
-    reportEl.append(
+    // Thanh nút xuất + nguồn.
+    body.append(
+      el("div", { class: "flex flex-wrap items-center justify-between gap-2" }, [
+        buildExportBar(state),
+        el("span", {
+          class: "text-xs text-slate-400",
+          text: insights.capturedAt ? `Nguồn: Graph API · lúc ${fmtDateTime(insights.capturedAt)}` : "Nguồn: Graph API"
+        })
+      ])
+    );
+
+    body.append(
       grid("grid-cols-2 lg:grid-cols-3", [
         kpiTile("Chi tiêu", fmtMoney(overview.spend, currency), "tổng kỳ", "text-brand-600"),
         kpiTile("Hiển thị", fmtInt(overview.impressions), "lượt hiển thị"),
@@ -416,19 +539,17 @@ export function mountAdsSection(rootEl) {
       ])
     );
 
-    // Tần suất (nếu có) — hiển thị/người.
     if (overview.frequency !== undefined && overview.frequency !== null && overview.frequency !== "") {
-      reportEl.append(
+      body.append(
         grid("grid-cols-2 lg:grid-cols-3", [
           kpiTile("Tần suất", fmtNum(overview.frequency, 2), "lần hiển thị / người")
         ])
       );
     }
 
-    // Biểu đồ đường theo ngày: chi tiêu (trục trái) vs hiển thị (trục phải).
     const daily = Array.isArray(insights.daily) ? insights.daily : [];
     const canvas = el("canvas", { attrs: { role: "img", "aria-label": "Chi tiêu và hiển thị theo ngày" } });
-    reportEl.append(
+    body.append(
       card([
         cardHeading(
           "Chi tiêu & hiển thị theo ngày",
@@ -445,7 +566,6 @@ export function mountAdsSection(rootEl) {
     }
   }
 
-  // Đường đôi 2 trục: spend (trái) vs impressions (phải).
   function drawDailyChart(canvas, daily, currency) {
     registerChart(
       new Chart(canvas, {
@@ -509,58 +629,38 @@ export function mountAdsSection(rootEl) {
     );
   }
 
-  // --- Nhân khẩu học người xem quảng cáo (Pha 2) ---
+  // --- Render NHÂN KHẨU HỌC vào body ---
 
-  async function loadDemographics(campaignId, adAccountId, datePreset) {
-    try {
-      const url =
-        `/api/ads/campaigns/${encodeURIComponent(campaignId)}/demographics` +
-        `?adAccountId=${encodeURIComponent(adAccountId)}&datePreset=${encodeURIComponent(datePreset)}`;
-      const data = await fetchJson(url);
-      renderDemographics(data.demographics);
-    } catch (error) {
-      // Nhân khẩu học là phần phụ: lỗi -> ghi chú mềm, KHÔNG xoá phần insights đã render.
-      reportEl.append(
-        card([
-          cardHeading("Nhân khẩu học người xem quảng cáo", "Không tải được nhân khẩu học."),
-          el("p", { class: "text-sm text-slate-500", text: `Lỗi: ${error.message}` })
-        ])
-      );
-    }
-  }
-
-  function renderDemographics(demo) {
+  function renderDemographics(body, warnBox, demo) {
     if (!demo) return;
-    // Lưu để nút Xuất gộp cả nhân khẩu học vào báo cáo (nút đọc state này lúc bấm).
-    lastDemographics = demo;
     for (const warning of demo.warnings || []) {
-      appendWarning(warning);
+      appendWarning(warnBox, warning);
     }
 
-    reportEl.append(
+    body.append(
       el("h3", {
         class: "pt-2 text-base font-semibold text-slate-900",
         text: "Nhân khẩu học người xem quảng cáo"
       })
     );
 
-    renderAgeGenderCard(demo.ageGender);
-    renderCategoricalCard(demo.country, {
+    renderAgeGenderCard(body, demo.ageGender);
+    renderCategoricalCard(body, demo.country, {
       title: "Top quốc gia",
       subtitle: "Số lượt hiển thị theo quốc gia (tối đa 10).",
       labeler: countryName
     });
-    renderCategoricalCard(demo.region, {
+    renderCategoricalCard(body, demo.region, {
       title: "Top vùng / tỉnh",
       subtitle: "Số lượt hiển thị theo vùng/tỉnh (tối đa 10).",
       labeler: regionName
     });
   }
 
-  function renderAgeGenderCard(ageGender) {
+  function renderAgeGenderCard(body, ageGender) {
     const heading = cardHeading("Tuổi × giới tính", "Lượt hiển thị theo nhóm tuổi, tách theo giới tính.");
     if (!ageGender || !ageGender.available) {
-      reportEl.append(
+      body.append(
         card([
           heading,
           el("p", { class: "text-sm text-slate-500", text: (ageGender && ageGender.reason) || "Không có dữ liệu." })
@@ -570,18 +670,18 @@ export function mountAdsSection(rootEl) {
     }
     const ages = ageGender.ages || [];
     if (ages.length === 0) {
-      reportEl.append(card([heading, emptyNote("Không có dữ liệu tuổi/giới tính.")]));
+      body.append(card([heading, emptyNote("Không có dữ liệu tuổi/giới tính.")]));
       return;
     }
     const canvas = el("canvas", { attrs: { role: "img", "aria-label": "Phân bố tuổi và giới tính" } });
-    reportEl.append(card([heading, el("div", { class: "relative h-80" }, [canvas])]));
+    body.append(card([heading, el("div", { class: "relative h-80" }, [canvas])]));
     drawAgeGenderChart(canvas, ageGender);
   }
 
-  function renderCategoricalCard(dimension, opts) {
+  function renderCategoricalCard(body, dimension, opts) {
     const heading = cardHeading(opts.title, opts.subtitle);
     if (!dimension || !dimension.available) {
-      reportEl.append(
+      body.append(
         card([
           heading,
           el("p", { class: "text-sm text-slate-500", text: (dimension && dimension.reason) || "Không có dữ liệu." })
@@ -591,16 +691,15 @@ export function mountAdsSection(rootEl) {
     }
     const items = dimension.items || [];
     if (items.length === 0) {
-      reportEl.append(card([heading, emptyNote("Không có dữ liệu.")]));
+      body.append(card([heading, emptyNote("Không có dữ liệu.")]));
       return;
     }
     const canvas = el("canvas", { attrs: { role: "img", "aria-label": opts.title } });
     const heightClass = items.length > 6 ? "h-96" : "h-72";
-    reportEl.append(card([heading, el("div", { class: `relative ${heightClass}` }, [canvas])]));
+    body.append(card([heading, el("div", { class: `relative ${heightClass}` }, [canvas])]));
     drawCategoricalChart(canvas, items, opts.labeler);
   }
 
-  // Cột nhóm (grouped) tuổi × giới tính: mỗi giới tính là 1 dataset, trục X là nhóm tuổi.
   function drawAgeGenderChart(canvas, ageGender) {
     const ages = ageGender.ages || [];
     const genders = ageGender.genders || [];
@@ -649,7 +748,6 @@ export function mountAdsSection(rootEl) {
     );
   }
 
-  // Thanh ngang xếp hạng (top quốc gia / vùng) theo lượt hiển thị.
   function drawCategoricalChart(canvas, items, labeler) {
     registerChart(
       new Chart(canvas, {
@@ -689,63 +787,14 @@ export function mountAdsSection(rootEl) {
     );
   }
 
-  // --- Xuất báo cáo (CSV / JSON) ---
+  // --- Xuất báo cáo (CSV / JSON) cho chiến dịch đang mở ---
 
-  // Ngữ cảnh chọn hiện tại (tên hiển thị + mã) để nhúng vào file & đặt tên file.
-  function currentContext() {
-    const accOpt = accountSelect.options[accountSelect.selectedIndex];
-    const campOpt = campaignSelect.options[campaignSelect.selectedIndex];
-    const presetOpt = datePresetSelect.options[datePresetSelect.selectedIndex];
-    return {
-      adAccountId: accountSelect.value,
-      accountName: accOpt ? accOpt.textContent : "",
-      campaignId: campaignSelect.value,
-      campaignName: campOpt ? campOpt.textContent : "",
-      datePreset: datePresetSelect.value,
-      datePresetLabel: presetOpt ? presetOpt.textContent : datePresetSelect.value
-    };
-  }
-
-  // Tải chuỗi văn bản xuống dạng file. CSV thêm BOM để Excel đọc đúng tiếng Việt.
-  function downloadText(filename, mimeType, text, withBom) {
-    const content = withBom ? `﻿${text}` : text;
-    const blob = new Blob([content], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = filename;
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    // Thu hồi URL tạm sau khi trình duyệt đã bắt đầu tải.
-    setTimeout(() => URL.revokeObjectURL(url), 0);
-  }
-
-  function doExport(kind) {
-    if (!lastInsights || !lastInsights.available) {
-      return;
-    }
-    const model = buildReportModel({
-      insights: lastInsights,
-      demographics: lastDemographics,
-      context: lastContext
-    });
-    const dateTag = new Date().toISOString().slice(0, 10);
-    if (kind === "csv") {
-      downloadText(
-        buildReportFilename(lastContext, "csv", dateTag),
-        "text/csv;charset=utf-8",
-        reportToCsv(model),
-        true
-      );
-    } else {
-      downloadText(
-        buildReportFilename(lastContext, "json", dateTag),
-        "application/json;charset=utf-8",
-        reportToJson(model),
-        false
-      );
-    }
+  function buildExportBar(state) {
+    return el("div", { class: "flex flex-wrap items-center gap-2" }, [
+      el("span", { class: "text-xs font-medium text-slate-500", text: "Xuất báo cáo:" }),
+      exportBtn("Xuất CSV", "Mở trực tiếp bằng Excel / Google Sheets", () => doExport("csv", state)),
+      exportBtn("Xuất JSON", "Dữ liệu thô có cấu trúc", () => doExport("json", state))
+    ]);
   }
 
   function exportBtn(label, title, onClick) {
@@ -759,19 +808,56 @@ export function mountAdsSection(rootEl) {
     return btn;
   }
 
-  function buildExportButtons() {
-    exportBar.replaceChildren(
-      el("span", { class: "text-xs font-medium text-slate-500", text: "Xuất báo cáo:" }),
-      exportBtn("Xuất CSV", "Mở trực tiếp bằng Excel / Google Sheets", () => doExport("csv")),
-      exportBtn("Xuất JSON", "Dữ liệu thô có cấu trúc", () => doExport("json"))
-    );
+  function downloadText(filename, mimeType, text, withBom) {
+    const content = withBom ? `﻿${text}` : text;
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
+  function doExport(kind, state) {
+    if (!state || !state.insights || !state.insights.available) {
+      return;
+    }
+    const model = buildReportModel({
+      insights: state.insights,
+      demographics: state.demographics,
+      context: state.context
+    });
+    const dateTag = new Date().toISOString().slice(0, 10);
+    if (kind === "csv") {
+      downloadText(
+        buildReportFilename(state.context, "csv", dateTag),
+        "text/csv;charset=utf-8",
+        reportToCsv(model),
+        true
+      );
+    } else {
+      downloadText(
+        buildReportFilename(state.context, "json", dateTag),
+        "application/json;charset=utf-8",
+        reportToJson(model),
+        false
+      );
+    }
   }
 
   // --- Wire events ---
-  accountSelect.addEventListener("change", () => loadCampaigns(accountSelect.value));
-  loadBtn.addEventListener("click", () => loadInsights());
+  refreshBtn.addEventListener("click", () => loadTree());
+  statusFilter.addEventListener("change", () => {
+    closeOpenDetail();
+    if (currentTree) renderTree(currentTree);
+  });
+  // Đổi khoảng thời gian: đóng chi tiết đang mở để lần mở sau dùng khoảng mới.
+  datePresetSelect.addEventListener("change", () => closeOpenDetail());
 
-  loadAccounts();
+  loadTree();
 
   // Controller cho statistics.js: hủy chart + dọn DOM khi rời tab.
   return {

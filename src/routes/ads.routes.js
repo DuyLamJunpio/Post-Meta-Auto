@@ -6,6 +6,8 @@ const express = require("express");
 
 const facebookService = require("../services/facebook.service");
 const adsInsightsService = require("../services/ads-insights.service");
+const adsPagesService = require("../services/ads-pages.service");
+const pageVisibilityService = require("../services/page-visibility.service");
 
 const router = express.Router();
 
@@ -38,6 +40,28 @@ const VALID_DATE_PRESETS = new Set([
   "last_month",
   "maximum"
 ]);
+
+// GET /api/ads/pages-tree — cây "trục Page": mỗi Page user quản lý -> các chiến dịch
+// (kèm trạng thái) quảng bá Page đó, quét MỌI tài khoản QC. Kết quả/nhân khẩu học của
+// từng chiến dịch tải riêng qua /insights & /demographics khi mở.
+router.get("/ads/pages-tree", async (req, res, next) => {
+  try {
+    const userAccessToken = getUserAccessToken(req);
+    if (!userAccessToken) {
+      throw createPublicError(400, "Chưa đăng nhập Facebook hoặc thiếu quyền quảng cáo.");
+    }
+
+    const sessionPages = (req.session.facebookUser && req.session.facebookUser.pages) || [];
+    const pages = pageVisibilityService
+      .getVisiblePages(sessionPages)
+      .map((page) => ({ id: page.id, name: page.name }));
+
+    const tree = await adsPagesService.buildPagesCampaignTree({ userAccessToken, pages });
+    res.json({ success: true, tree });
+  } catch (error) {
+    next(error);
+  }
+});
 
 // GET /api/ads/accounts — tài khoản quảng cáo user truy cập được.
 router.get("/ads/accounts", async (req, res, next) => {

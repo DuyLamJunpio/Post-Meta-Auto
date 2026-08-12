@@ -983,6 +983,65 @@ async function getCampaigns(adAccountId, userAccessToken) {
   }
 }
 
+// Rút page_id mà 1 ad quảng bá: ưu tiên creative.object_story_spec.page_id; nếu không có
+// thì lấy tiền tố "{page_id}_{post_id}" của effective_object_story_id (ở creative hoặc ad).
+function extractAdPageId(ad) {
+  const creative = (ad && ad.creative) || {};
+  const spec = creative.object_story_spec || {};
+  if (spec.page_id) {
+    return String(spec.page_id);
+  }
+  const storyId = creative.effective_object_story_id || (ad && ad.effective_object_story_id);
+  if (typeof storyId === "string" && storyId.includes("_")) {
+    return storyId.split("_")[0];
+  }
+  return null;
+}
+
+// Bản đồ chiến dịch -> Page cho MỘT tài khoản QC: quét ads (/act_{id}/ads), lấy page_id từ
+// creative của từng ad rồi gom theo campaign_id (giữ Page đầu tiên gặp cho mỗi chiến dịch).
+//
+// VÌ SAO CẦN: Marketing API KHÔNG gắn chiến dịch trực tiếp vào Page. Page mà chiến dịch
+// quảng bá nằm ở creative của ad. Đây là cách suy quan hệ "chiến dịch của Page nào".
+//
+// BEST-EFFORT: thiếu quyền/lỗi khác -> trả { campaignPages:{} } (KHÔNG throw) để danh sách
+// chiến dịch vẫn hiện, chỉ là xếp vào nhóm "Chưa xác định Page".
+async function getAdsPageMap(adAccountId, userAccessToken) {
+  const actId = normalizeAdAccountId(adAccountId);
+  if (!actId) {
+    return { campaignPages: {} };
+  }
+
+  try {
+    const ads = await fetchAllPaged(`${config.facebook.graphApiBaseUrl}/${actId}/ads`, {
+      fields:
+        "campaign_id,effective_object_story_id,creative{object_story_spec{page_id},effective_object_story_id}",
+      access_token: userAccessToken,
+      limit: 500
+    });
+
+    const campaignPages = {};
+    for (const ad of ads) {
+      const campaignId = ad && ad.campaign_id;
+      if (!campaignId || campaignPages[campaignId]) {
+        continue; // đã có Page cho chiến dịch này -> giữ page đầu tiên
+      }
+      const pageId = extractAdPageId(ad);
+      if (pageId) {
+        campaignPages[campaignId] = pageId;
+      }
+    }
+    return { campaignPages };
+  } catch (error) {
+    const graphError = error.response && error.response.data && error.response.data.error;
+    console.warn(
+      `[Meta Graph API] Không đọc được ads để suy Page (${actId}):`,
+      graphError ? graphError.message : error.message
+    );
+    return { campaignPages: {} };
+  }
+}
+
 // Tiền tệ của tài khoản QC (best-effort) để định dạng tiền trong báo cáo Ads.
 // Không throw: lỗi -> trả "" để phần báo cáo vẫn hiện (frontend tự để trống ký hiệu tiền).
 async function getAdAccountCurrency(adAccountId, userAccessToken) {
@@ -1657,6 +1716,7 @@ module.exports = {
   normalizeAdAccountId,
   getAdAccounts,
   getCampaigns,
+  getAdsPageMap,
   getAdAccountCurrency,
   getCampaignInsights,
   getCampaignBreakdowns,

@@ -246,6 +246,102 @@ function buildCategoricalBreakdown(rows, field, options) {
   return { items, totalImpressions, otherImpressions, totalCount: sorted.length };
 }
 
+// --- Cây Page -> chiến dịch (thiết kế trục Page) ----------------------------
+//
+// Phân loại effective_status của Marketing API về 3 nhóm THÔ cho UI:
+//   active  = đang chạy (ACTIVE)
+//   paused  = tạm dừng / chờ (PAUSED, CAMPAIGN_PAUSED, PENDING_REVIEW, IN_PROCESS...)
+//   stopped = đã dừng hẳn / lưu trữ / bị từ chối / rỗng (ARCHIVED, DELETED, DISAPPROVED...)
+const PAUSED_STATUSES = new Set([
+  "PAUSED",
+  "CAMPAIGN_PAUSED",
+  "ADSET_PAUSED",
+  "PENDING_REVIEW",
+  "IN_PROCESS",
+  "PENDING_BILLING_INFO",
+  "PREAPPROVED"
+]);
+
+function classifyRunState(effectiveStatus) {
+  const s = String(effectiveStatus || "").toUpperCase();
+  if (s === "ACTIVE") {
+    return "active";
+  }
+  if (PAUSED_STATUSES.has(s)) {
+    return "paused";
+  }
+  return "stopped";
+}
+
+// Gom chiến dịch theo Page. THUẦN (không I/O).
+//   campaigns:       [{ id, name, effectiveStatus, adAccountId, adAccountName, ... }]
+//   campaignPageMap: { [campaignId]: pageId }  (thiếu -> "Chưa xác định Page")
+//   pages:           [{ id, name }] Page user quản lý (đã lọc ẩn) — tạo nhóm sẵn dù rỗng.
+// Trả { groups:[{ pageId, pageName, managed, campaigns:[...+runState], counts }], totalCampaigns }.
+// Sắp xếp: Page quản lý trước (nhiều chiến dịch hơn lên trước), rồi Page ngoài, "Chưa xác định" cuối.
+function buildPageCampaignTree({ campaigns, campaignPageMap, pages } = {}) {
+  const campaignList = Array.isArray(campaigns) ? campaigns : [];
+  const pageList = Array.isArray(pages) ? pages : [];
+  const pageMap = campaignPageMap || {};
+  const UNDETERMINED = "__undetermined__";
+
+  const managedName = new Map(pageList.map((p) => [String(p.id), p.name || `Page ${p.id}`]));
+  const groups = new Map();
+
+  function ensureGroup(key, name, managed) {
+    if (!groups.has(key)) {
+      groups.set(key, {
+        pageId: key === UNDETERMINED ? null : key,
+        pageName: name,
+        managed,
+        campaigns: [],
+        counts: { active: 0, paused: 0, stopped: 0 }
+      });
+    }
+    return groups.get(key);
+  }
+
+  // Tạo sẵn nhóm cho mọi Page quản lý -> Page chưa có chiến dịch vẫn hiển thị.
+  for (const p of pageList) {
+    ensureGroup(String(p.id), p.name || `Page ${p.id}`, true);
+  }
+
+  for (const campaign of campaignList) {
+    const rawPageId = pageMap[campaign.id];
+    const pageId = rawPageId != null && rawPageId !== "" ? String(rawPageId) : null;
+
+    let group;
+    if (!pageId) {
+      group = ensureGroup(UNDETERMINED, "Chưa xác định Page", false);
+    } else if (managedName.has(pageId)) {
+      group = ensureGroup(pageId, managedName.get(pageId), true);
+    } else {
+      group = ensureGroup(pageId, `Page ${pageId}`, false);
+    }
+
+    const runState = classifyRunState(campaign.effectiveStatus);
+    group.campaigns.push({ ...campaign, runState });
+    group.counts[runState] += 1;
+  }
+
+  const groupsArr = [...groups.values()].sort((a, b) => {
+    const aUndet = a.pageId === null;
+    const bUndet = b.pageId === null;
+    if (aUndet !== bUndet) {
+      return aUndet ? 1 : -1; // "Chưa xác định" xuống cuối
+    }
+    if (a.managed !== b.managed) {
+      return a.managed ? -1 : 1; // Page quản lý lên trước
+    }
+    if (b.campaigns.length !== a.campaigns.length) {
+      return b.campaigns.length - a.campaigns.length; // nhiều chiến dịch hơn lên trước
+    }
+    return String(a.pageName).localeCompare(String(b.pageName), "vi");
+  });
+
+  return { groups: groupsArr, totalCampaigns: campaignList.length };
+}
+
 module.exports = {
   toNumber,
   sumSeries,
@@ -256,7 +352,9 @@ module.exports = {
   buildOverview,
   buildDailySeries,
   buildAgeGenderBreakdown,
-  buildCategoricalBreakdown
+  buildCategoricalBreakdown,
+  classifyRunState,
+  buildPageCampaignTree
 };
 
 // --- Tự kiểm nhỏ khi chạy trực tiếp: `node src/utils/ads-math.js` -----------
@@ -360,6 +458,47 @@ if (require.main === module) {
     otherImpressions: 0,
     totalCount: 0
   });
+
+  // --- Cây Page -> chiến dịch ---
+  assert.strictEqual(classifyRunState("ACTIVE"), "active");
+  assert.strictEqual(classifyRunState("PAUSED"), "paused");
+  assert.strictEqual(classifyRunState("CAMPAIGN_PAUSED"), "paused");
+  assert.strictEqual(classifyRunState("ARCHIVED"), "stopped");
+  assert.strictEqual(classifyRunState(""), "stopped");
+
+  const tree = buildPageCampaignTree({
+    campaigns: [
+      { id: "c1", name: "CD1", effectiveStatus: "ACTIVE", adAccountId: "act_1", adAccountName: "A1" },
+      { id: "c2", name: "CD2", effectiveStatus: "PAUSED", adAccountId: "act_1", adAccountName: "A1" },
+      { id: "c3", name: "CD3", effectiveStatus: "ARCHIVED", adAccountId: "act_2", adAccountName: "A2" },
+      { id: "c4", name: "CD4", effectiveStatus: "ACTIVE", adAccountId: "act_2", adAccountName: "A2" }
+    ],
+    campaignPageMap: { c1: "111", c2: "111", c3: "222", c4: null },
+    pages: [
+      { id: "111", name: "Trang Một" },
+      { id: "333", name: "Trang Ba rỗng" }
+    ]
+  });
+  assert.strictEqual(tree.totalCampaigns, 4);
+  const g111 = tree.groups.find((g) => g.pageId === "111");
+  assert.strictEqual(g111.pageName, "Trang Một");
+  assert.strictEqual(g111.managed, true);
+  assert.strictEqual(g111.campaigns.length, 2);
+  assert.deepStrictEqual(g111.counts, { active: 1, paused: 1, stopped: 0 });
+  const g222 = tree.groups.find((g) => g.pageId === "222");
+  assert.strictEqual(g222.managed, false); // Page ngoài danh sách quản lý
+  assert.strictEqual(g222.pageName, "Page 222");
+  assert.strictEqual(g222.counts.stopped, 1);
+  // Page quản lý rỗng vẫn hiển thị
+  assert.ok(tree.groups.some((g) => g.pageId === "333" && g.campaigns.length === 0));
+  // "Chưa xác định Page" (c4) xếp CUỐI
+  const last = tree.groups[tree.groups.length - 1];
+  assert.strictEqual(last.pageId, null);
+  assert.strictEqual(last.campaigns.length, 1);
+  assert.strictEqual(last.campaigns[0].id, "c4");
+  assert.strictEqual(last.campaigns[0].runState, "active");
+  // rỗng an toàn
+  assert.deepStrictEqual(buildPageCampaignTree({}), { groups: [], totalCampaigns: 0 });
 
   console.log("[ads-math] self-check PASS");
 }
