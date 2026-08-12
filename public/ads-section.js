@@ -263,7 +263,7 @@ export function mountAdsSection(rootEl) {
     ]),
     el("p", {
       class: "mt-2 text-xs text-slate-400",
-      text: "Mỗi lần bấm 📊 Google Sheet sẽ ĐIỀN/CẬP NHẬT dữ liệu THEO NGÀY vào file của Page (mỗi ngày 1 dòng, không trùng). Chọn “Khoảng thời gian”, hoặc điền cả “Từ ngày”+“Đến ngày”, để lấp đúng các ngày cần."
+      text: "Mỗi lần bấm 📊 Google Sheet sẽ THÊM 1 khối (kết quả + nhân khẩu học của kỳ đó, kèm trạng thái) xuống dưới trong tab chiến dịch — dồn lại để so sánh nhiều kỳ. Chọn “Khoảng thời gian”, hoặc điền cả “Từ ngày”+“Đến ngày” cho khoảng tùy chọn."
     })
   ]);
 
@@ -417,11 +417,15 @@ export function mountAdsSection(rootEl) {
   // Xuất 1 Page ra Google Sheet: gửi danh sách chiến dịch của Page + khoảng thời gian;
   // server tạo file (mỗi chiến dịch 1 tab, có kết quả theo ngày) và trả link.
   async function exportPageToSheet(group, btn, statusEl) {
-    const campaigns = (group.campaigns || []).map((c) => ({
-      id: c.id,
-      name: c.name,
-      adAccountId: c.adAccountId
-    }));
+    const campaigns = (group.campaigns || []).map((c) => {
+      const info = RUN_STATE[c.runState];
+      return {
+        id: c.id,
+        name: c.name,
+        adAccountId: c.adAccountId,
+        statusLabel: info ? `${info.dot} ${info.label}` : ""
+      };
+    });
     if (campaigns.length === 0) {
       statusEl.replaceChildren(el("span", { class: "text-xs text-slate-400", text: "Không có chiến dịch để xuất." }));
       return;

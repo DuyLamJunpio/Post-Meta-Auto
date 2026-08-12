@@ -422,9 +422,14 @@ async function createPageSpreadsheet(auth, { pageName, campaigns }) {
 
 // ===== Chế độ DỒN DATA: 1 file/Page, mỗi lần xuất thêm 1 DÒNG tổng hợp ========
 
-// Chuỗi theo NGÀY: mỗi dòng = 1 ngày. Xuất khoảng nào thì điền/cập nhật đúng các ngày đó
-// (upsert theo cột "Ngày") — không trùng, không chồng lấn; vẽ biểu đồ / pivot ra tuần-tháng dễ.
-const DAILY_HEADER = ["Ngày", "Chi tiêu", "Hiển thị", "Tiếp cận", "Lượt nhấp", "CTR (%)", "Kết quả"];
+// Mô hình KHỐI: mỗi lần xuất THÊM 1 khối xuống dưới trong tab chiến dịch (không ghi đè) —
+// gồm tiêu đề kỳ + trạng thái + Kết quả + Nhân khẩu học, để so sánh nhiều kỳ.
+
+// "dd/mm/yyyy" từ "YYYY-MM-DD" (giữ nguyên nếu không khớp).
+function fmtDayVN(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ""));
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : String(iso || "");
+}
 
 // Tên tab ỔN ĐỊNH theo chiến dịch (kèm đuôi id) để lần xuất sau GHI TIẾP đúng tab, kể cả
 // khi 2 chiến dịch trùng tên hoặc chiến dịch bị đổi tên.
@@ -438,40 +443,11 @@ function demoTabTitle(name, campaignId) {
   return `${campaignTabTitle(name, campaignId).slice(0, 89)} · NKH`;
 }
 
-// Các dòng theo NGÀY cho 1 chiến dịch (từ chuỗi daily của insights). CTR suy theo ngày.
-function buildDailyRows(campaign) {
-  const daily = Array.isArray(campaign.daily) ? campaign.daily : [];
-  return daily.map((point) => {
-    const impressions = Number(point.impressions) || 0;
-    const clicks = Number(point.clicks) || 0;
-    const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
-    return [
-      point.date,
-      cellNumber(point.spend),
-      cellNumber(point.impressions),
-      cellNumber(point.reach),
-      cellNumber(point.clicks),
-      cellNumber(ctr),
-      cellNumber(point.results)
-    ];
-  });
-}
-
-// 2D values cho tab nhân khẩu học (bản MỚI NHẤT, ghi đè mỗi lần xuất).
-function buildDemoValues(entry) {
+// Các dòng nhân khẩu học cho 1 khối (tuổi×giới / quốc gia / vùng).
+function demographicsRows(demo) {
   const rows = [];
-  rows.push([`Nhân khẩu học — ${entry.name || ""}`]);
-  rows.push([`Cập nhật: ${entry.capturedAt || ""} · Khoảng: ${entry.periodLabel || ""}`]);
-  rows.push([]);
-
-  const demo = entry.demographics;
-  if (!demo) {
-    rows.push(["Không có dữ liệu nhân khẩu học."]);
-    return rows;
-  }
-
-  rows.push(["[Tuổi × giới tính]"]);
-  if (demo.ageGender && demo.ageGender.available) {
+  rows.push(["[Nhân khẩu học — Tuổi × giới tính]"]);
+  if (demo && demo.ageGender && demo.ageGender.available) {
     rows.push(["Nhóm tuổi", "Giới tính", "Hiển thị", "Tiếp cận", "Lượt nhấp", "Chi tiêu", "Tỷ trọng (%)"]);
     for (const seg of demo.ageGender.segments || []) {
       rows.push([
@@ -485,49 +461,64 @@ function buildDemoValues(entry) {
       ]);
     }
   } else {
-    rows.push(["Không khả dụng", (demo.ageGender && demo.ageGender.reason) || ""]);
+    rows.push(["Không khả dụng", (demo && demo.ageGender && demo.ageGender.reason) || ""]);
   }
-  pushCategoricalDim(rows, demo.country, "[Top quốc gia]", "Quốc gia", countryLabel);
-  pushCategoricalDim(rows, demo.region, "[Top vùng/tỉnh]", "Vùng/tỉnh", (v) =>
+  pushCategoricalDim(rows, demo && demo.country, "[Top quốc gia]", "Quốc gia", countryLabel);
+  pushCategoricalDim(rows, demo && demo.region, "[Top vùng/tỉnh]", "Vùng/tỉnh", (v) =>
     !v || v === "unknown" ? "Không rõ" : v
   );
   return rows;
 }
 
-// Gộp dòng theo NGÀY: incoming ghi đè existing cùng ngày (cột 0), rồi sắp tăng theo ngày.
-// THUẦN (không I/O) -> kiểm thử được. rows là mảng mảng ["YYYY-MM-DD", ...số...].
-function mergeDailyByDate(existing, incoming) {
-  const map = new Map();
-  for (const row of Array.isArray(existing) ? existing : []) {
-    const date = row && row[0];
-    if (date) map.set(String(date), row);
+// 1 KHỐI cho 1 lần xuất của 1 chiến dịch: tiêu đề kỳ + trạng thái + ngày xuất + [Kết quả] +
+// [Nhân khẩu học]. Kết thúc bằng 2 dòng trống ngăn cách khối kế tiếp.
+function buildBlockRows(campaign, meta) {
+  const ov = campaign.overview || {};
+  const rows = [];
+  rows.push([meta.blockTitle]);
+  rows.push(["Trạng thái:", campaign.statusLabel || "", "", "Ngày xuất:", meta.capturedAt || ""]);
+  rows.push([]);
+
+  rows.push(["[Kết quả]"]);
+  rows.push(["Chi tiêu", "Hiển thị", "Tiếp cận", "Lượt nhấp", "CTR (%)", "CPC", "CPM", "Tần suất", "Kết quả", "Chi phí/KQ"]);
+  rows.push([
+    cellNumber(ov.spend),
+    cellNumber(ov.impressions),
+    cellNumber(ov.reach),
+    cellNumber(ov.clicks),
+    cellNumber(ov.ctr),
+    cellNumber(ov.cpc),
+    cellNumber(ov.cpm),
+    cellNumber(ov.frequency),
+    cellNumber(ov.results),
+    cellNumber(ov.costPerResult)
+  ]);
+  rows.push([]);
+
+  for (const row of demographicsRows(campaign.demographics)) {
+    rows.push(row);
   }
-  for (const row of Array.isArray(incoming) ? incoming : []) {
-    const date = row && row[0];
-    if (date) map.set(String(date), row); // dữ liệu mới đè dữ liệu cũ cùng ngày
-  }
-  return [...map.values()].sort((a, b) =>
-    String(a[0]) < String(b[0]) ? -1 : String(a[0]) > String(b[0]) ? 1 : 0
-  );
+  rows.push([]);
+  rows.push([]);
+  return rows;
 }
 
-// Dựng "entry" cho 1 chiến dịch: tên tab + các dòng theo ngày + (tuỳ) values nhân khẩu học.
-// periodMeta chỉ còn dùng cho phần đầu tab nhân khẩu học (thời điểm cập nhật + khoảng).
+// Dựng "entry" cho 1 chiến dịch: tên tab + 1 KHỐI (kết quả + nhân khẩu học của kỳ này).
+// blockTitle: "<nhãn kỳ> · <ngày>" (1 ngày) hoặc "<nhãn kỳ> · <từ> – <đến>" (nhiều ngày).
 function buildExportEntry(campaign, periodMeta) {
   const meta = periodMeta || {};
-  const entry = {
-    name: campaign.name,
-    demographics: campaign.demographics || null,
-    capturedAt: meta.capturedAt || "",
-    periodLabel: meta.periodLabel || ""
-  };
-  const hasDemo = Boolean(campaign.available && campaign.demographics);
+  const daily = Array.isArray(campaign.daily) ? campaign.daily : [];
+  const from = meta.dateStart || (daily[0] && daily[0].date) || "";
+  const to = meta.dateStop || (daily[daily.length - 1] && daily[daily.length - 1].date) || "";
+  let range = "";
+  if (from && to) {
+    range = from === to ? fmtDayVN(from) : `${fmtDayVN(from)} – ${fmtDayVN(to)}`;
+  }
+  const label = meta.periodLabel || "Kết quả";
+  const blockTitle = range ? `${label} · ${range}` : label;
   return {
     campaignTab: campaignTabTitle(campaign.name, campaign.campaignId),
-    demoTab: hasDemo ? demoTabTitle(campaign.name, campaign.campaignId) : null,
-    header: DAILY_HEADER,
-    dailyRows: buildDailyRows(campaign),
-    demoValues: hasDemo ? buildDemoValues(entry) : null
+    blockRows: buildBlockRows(campaign, { blockTitle, capturedAt: meta.capturedAt || "" })
   };
 }
 
@@ -571,9 +562,9 @@ async function apiAddSheets(accessToken, spreadsheetId, titles) {
   );
 }
 
-async function apiUpdate(accessToken, spreadsheetId, tabTitle, values) {
+async function apiUpdate(accessToken, spreadsheetId, tabTitle, values, cell = "A1") {
   await axios.put(
-    `${config.googleSheets.sheetsApiBaseUrl}/${spreadsheetId}/values/${rangeUrl(tabTitle, "A1")}`,
+    `${config.googleSheets.sheetsApiBaseUrl}/${spreadsheetId}/values/${rangeUrl(tabTitle, cell)}`,
     { values },
     {
       params: { valueInputOption: "RAW" },
@@ -610,11 +601,9 @@ async function apiGetValues(accessToken, spreadsheetId, tabTitle) {
   return (res.data && res.data.values) || [];
 }
 
-// Ghi các entry vào 1 file Page theo mô hình CHUỖI NGÀY (upsert):
-//   - Tạo file nếu chưa có (hoặc file cũ đã mất), thêm tab thiếu.
-//   - Tab chiến dịch: đọc chuỗi ngày hiện có -> GỘP với dữ liệu mới theo ngày (mới đè cũ) ->
-//     ghi lại (header + các ngày, đã sắp). Tab format cũ (không phải chuỗi ngày) -> ghi đè sạch.
-//   - Tab NKH: ghi đè bản mới nhất.
+// Ghi các entry vào 1 file Page theo mô hình KHỐI (không ghi đè):
+//   - Tạo file nếu chưa có (hoặc file cũ đã mất), thêm tab chiến dịch còn thiếu.
+//   - Mỗi chiến dịch 1 tab: đọc số dòng hiện có -> ghi khối MỚI xuống DƯỚI (accumulate).
 // Trả { spreadsheetId, spreadsheetUrl, created }.
 async function appendPageExport(auth, { spreadsheetId, pageName, entries }) {
   const accessToken = await getAccessToken(auth);
@@ -633,48 +622,29 @@ async function appendPageExport(auth, { spreadsheetId, pageName, entries }) {
 
     let sheetId;
     let sheetUrl;
-    let preexistingTitles; // tab đã có TRƯỚC lần chạy này (mới có dữ liệu để gộp)
+    let preexistingTitles; // tab đã có TRƯỚC lần chạy này (đã có nội dung -> ghi tiếp bên dưới)
 
     if (!meta) {
-      const tabTitles = [];
-      for (const entry of list) {
-        tabTitles.push(entry.campaignTab);
-        if (entry.demoTab) tabTitles.push(entry.demoTab);
-      }
-      const created = await apiCreateSpreadsheet(accessToken, title, tabTitles);
+      const created = await apiCreateSpreadsheet(accessToken, title, list.map((e) => e.campaignTab));
       sheetId = created.spreadsheetId;
       sheetUrl = created.spreadsheetUrl;
-      preexistingTitles = new Set(); // tất cả tab đều mới -> ghi thẳng
+      preexistingTitles = new Set(); // tab đều mới -> ghi từ đầu
     } else {
       sheetId = meta.spreadsheetId;
       sheetUrl = meta.spreadsheetUrl;
       preexistingTitles = meta.titles;
-      const missing = [];
-      for (const entry of list) {
-        if (!preexistingTitles.has(entry.campaignTab)) missing.push(entry.campaignTab);
-        if (entry.demoTab && !preexistingTitles.has(entry.demoTab)) missing.push(entry.demoTab);
-      }
+      const missing = list.map((e) => e.campaignTab).filter((t) => !preexistingTitles.has(t));
       await apiAddSheets(accessToken, sheetId, missing);
     }
 
     for (const entry of list) {
+      // Ghi khối xuống DƯỚI nội dung hiện có: đọc số dòng -> ghi từ dòng kế tiếp.
+      let startRow = 1;
       if (preexistingTitles.has(entry.campaignTab)) {
-        // Tab đã có: gộp chuỗi ngày (chỉ khi đúng format chuỗi ngày; format cũ -> bỏ, ghi sạch).
         const values = await apiGetValues(accessToken, sheetId, entry.campaignTab);
-        const hasDaily = values[0] && String(values[0][0]).trim() === "Ngày";
-        const existingRows = hasDaily ? values.slice(1) : [];
-        const merged = mergeDailyByDate(existingRows, entry.dailyRows);
-        await apiClear(accessToken, sheetId, entry.campaignTab);
-        await apiUpdate(accessToken, sheetId, entry.campaignTab, [entry.header, ...merged]);
-      } else {
-        // Tab mới: ghi header + các ngày.
-        await apiUpdate(accessToken, sheetId, entry.campaignTab, [entry.header, ...entry.dailyRows]);
+        startRow = (values ? values.length : 0) + 1;
       }
-
-      if (entry.demoTab) {
-        await apiClear(accessToken, sheetId, entry.demoTab);
-        await apiUpdate(accessToken, sheetId, entry.demoTab, entry.demoValues);
-      }
+      await apiUpdate(accessToken, sheetId, entry.campaignTab, entry.blockRows, `A${startRow}`);
     }
 
     return { spreadsheetId: sheetId, spreadsheetUrl: sheetUrl, created: !meta };

@@ -276,6 +276,7 @@ router.post("/ads/pages/:pageId/export-sheet", async (req, res, next) => {
             name: item.name || campaignId,
             campaignId,
             available: insights.available,
+            statusLabel: String(item.statusLabel || ""),
             overview: insights.overview,
             daily: insights.daily,
             demographics
