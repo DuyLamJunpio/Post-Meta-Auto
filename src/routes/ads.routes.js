@@ -7,15 +7,16 @@ const express = require("express");
 const facebookService = require("../services/facebook.service");
 const adsInsightsService = require("../services/ads-insights.service");
 const adsPagesService = require("../services/ads-pages.service");
+const googleSheetsService = require("../services/google-sheets.service");
 const pageVisibilityService = require("../services/page-visibility.service");
 
 const router = express.Router();
 
-function createPublicError(status, message) {
+function createPublicError(status, message, details) {
   const error = new Error(message);
   error.status = status;
   error.publicMessage = message;
-  error.details = null;
+  error.details = details || null;
   return error;
 }
 
@@ -150,6 +151,66 @@ router.get("/ads/campaigns/:campaignId/demographics", async (req, res, next) => 
     });
 
     res.json({ success: true, demographics });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/ads/pages/:pageId/export-sheet — tạo 1 file Google Sheet cho Page: mỗi chiến
+// dịch 1 tab, trong tab là Tổng quan + KẾT QUẢ THEO NGÀY. Body: { pageName, datePreset,
+// campaigns:[{id,name,adAccountId}] }. Cần đã kết nối Google Sheets (409 nếu chưa).
+router.post("/ads/pages/:pageId/export-sheet", async (req, res, next) => {
+  try {
+    const userAccessToken = getUserAccessToken(req);
+    if (!userAccessToken) {
+      throw createPublicError(400, "Chưa đăng nhập Facebook hoặc thiếu quyền quảng cáo.");
+    }
+
+    const sheetsAuth = (req.session && req.session.googleSheets) || null;
+    if (!googleSheetsService.isConnected(sheetsAuth)) {
+      throw createPublicError(409, "Chưa kết nối Google Sheets. Hãy bấm “Kết nối Google Sheets” rồi thử lại.", {
+        reason: "google_sheets_not_connected"
+      });
+    }
+
+    const pageName = String(req.body.pageName || "Page").slice(0, 120);
+    const requestedPreset = String(req.body.datePreset || "last_30d").trim();
+    const datePreset = VALID_DATE_PRESETS.has(requestedPreset) ? requestedPreset : "last_30d";
+
+    // Giới hạn 50 chiến dịch/lần xuất để không nã Graph quá nhiều.
+    const requestedCampaigns = Array.isArray(req.body.campaigns) ? req.body.campaigns.slice(0, 50) : [];
+    if (requestedCampaigns.length === 0) {
+      throw createPublicError(400, "Không có chiến dịch nào để xuất.");
+    }
+
+    // Lấy insights TUẦN TỰ từng chiến dịch (tránh nã Graph đồng thời quá nhanh).
+    const campaigns = [];
+    for (const item of requestedCampaigns) {
+      const adAccountId = String(item.adAccountId || "").trim();
+      const campaignId = String(item.id || "").trim();
+      if (!adAccountId || !campaignId) {
+        continue;
+      }
+      const insights = await adsInsightsService.buildCampaignInsights({
+        campaignId,
+        adAccountId,
+        userAccessToken,
+        userId: Number(req.session.userId) || null,
+        datePreset
+      });
+      campaigns.push({
+        name: item.name || campaignId,
+        campaignId,
+        available: insights.available,
+        reason: (insights.warnings || [])[0] || "",
+        overview: insights.overview,
+        daily: insights.daily,
+        currency: insights.currency
+      });
+    }
+
+    const spreadsheet = await googleSheetsService.createPageSpreadsheet(sheetsAuth, { pageName, campaigns });
+    res.json({ success: true, spreadsheet });
   } catch (error) {
     next(error);
   }

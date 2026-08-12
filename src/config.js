@@ -45,6 +45,9 @@ const googleDriveClientSecret = process.env.GOOGLE_CLIENT_SECRET || "";
 const googleBusinessRedirectUri =
   process.env.GOOGLE_BUSINESS_REDIRECT_URI ||
   `http://localhost:${Number(process.env.PORT) || 3000}/auth/google/business/callback`;
+const googleSheetsRedirectUri =
+  process.env.GOOGLE_SHEETS_REDIRECT_URI ||
+  `http://localhost:${Number(process.env.PORT) || 3000}/auth/google/sheets/callback`;
 const instagramAppId = process.env.INSTAGRAM_APP_ID || "";
 const instagramAppSecret = process.env.INSTAGRAM_APP_SECRET || "";
 const instagramRedirectUri =
@@ -167,6 +170,26 @@ const config = {
     accountApiBaseUrl: "https://mybusinessaccountmanagement.googleapis.com/v1",
     infoApiBaseUrl: "https://mybusinessbusinessinformation.googleapis.com/v1",
     scopes: (process.env.GOOGLE_BUSINESS_SCOPES || "https://www.googleapis.com/auth/business.manage")
+      .split(/[,\s]+/)
+      .map((scope) => scope.trim())
+      .filter(Boolean)
+  },
+  googleSheets: {
+    // Dùng CHUNG OAuth client với Google Drive (GOOGLE_CLIENT_ID/SECRET), chỉ khác
+    // redirect URI + scope. Bật khi đủ credentials — thiếu thì tính năng tự tắt.
+    clientId: googleDriveClientId,
+    clientSecret: googleDriveClientSecret,
+    redirectUri: googleSheetsRedirectUri,
+    enabled: Boolean(googleDriveClientId && googleDriveClientSecret && googleSheetsRedirectUri),
+    oauthDialogUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+    tokenUrl: "https://oauth2.googleapis.com/token",
+    revokeUrl: "https://oauth2.googleapis.com/revoke",
+    sheetsApiBaseUrl: "https://sheets.googleapis.com/v4/spreadsheets",
+    // spreadsheets: tạo & ghi Sheet; drive.file: quản lý chính file app tạo (đổi tên…).
+    scopes: (
+      process.env.GOOGLE_SHEETS_SCOPES ||
+      "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file"
+    )
       .split(/[,\s]+/)
       .map((scope) => scope.trim())
       .filter(Boolean)

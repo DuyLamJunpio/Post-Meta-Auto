@@ -5,6 +5,7 @@ const { config } = require("../config");
 const facebookService = require("../services/facebook.service");
 const googleDriveService = require("../services/google-drive.service");
 const gbpService = require("../services/gbp.service");
+const googleSheetsService = require("../services/google-sheets.service");
 const instagramService = require("../services/instagram.service");
 const tiktokService = require("../services/tiktok.service");
 const userFacebookService = require("../services/user-facebook.service");
@@ -170,6 +171,48 @@ router.get("/google/business/callback", requireFacebookLogin, async (req, res, n
       }
 
       res.redirect("/dashboard.html?gbp=connected");
+    });
+  } catch (callbackError) {
+    next(callbackError);
+  }
+});
+
+router.get("/google/sheets", requireFacebookLogin, (req, res, next) => {
+  try {
+    res.redirect(googleSheetsService.buildAuthorizationUrl(req.session));
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/google/sheets/callback", requireFacebookLogin, async (req, res, next) => {
+  try {
+    const { code, state, error, error_description: errorDescription } = req.query;
+    const expectedState = req.session.googleSheetsOAuthState;
+
+    delete req.session.googleSheetsOAuthState;
+
+    if (error) {
+      return res.status(400).send(errorDescription || "Google đã hủy yêu cầu kết nối Sheets.");
+    }
+
+    if (!expectedState || state !== expectedState) {
+      return res.status(400).send("OAuth state Google Sheets không hợp lệ.");
+    }
+
+    if (!code) {
+      return res.status(400).send("Không có authorization code Google Sheets.");
+    }
+
+    const tokens = await googleSheetsService.exchangeCodeForTokens(code);
+    googleSheetsService.storeTokens(req.session, tokens);
+
+    req.session.save((saveError) => {
+      if (saveError) {
+        return next(saveError);
+      }
+
+      res.redirect("/statistics.html?sheets=connected");
     });
   } catch (callbackError) {
     next(callbackError);

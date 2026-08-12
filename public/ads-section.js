@@ -336,33 +336,51 @@ export function mountAdsSection(rootEl) {
     const chevron = el("span", { class: "text-slate-400", text: "▾" });
     const listEl = el("div", { class: "divide-y divide-slate-100 border-t border-slate-100" });
 
-    const header = el(
+    // Nút xổ/gập (KHÔNG bọc nút Sheet bên trong — tránh button lồng button).
+    const toggleBtn = el(
       "button",
-      {
-        class: "flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50",
-        attrs: { type: "button", "aria-expanded": "true" }
-      },
+      { class: "flex flex-1 items-center gap-3 text-left", attrs: { type: "button", "aria-expanded": "true" } },
       [
         chevron,
-        el("span", { class: "flex-1" }, [
+        el("span", {}, [
           el("span", { class: "text-sm font-semibold text-slate-900", text: group.pageName }),
           group.managed
             ? null
             : el("span", { class: "ml-2 text-xs text-slate-400", text: "(Page ngoài / chưa xác định)" })
-        ]),
-        el("span", { class: "flex items-center gap-3" }, [
-          countChip("active", group.counts.active),
-          countChip("paused", group.counts.paused),
-          countChip("stopped", group.counts.stopped)
         ])
       ]
     );
-
-    header.addEventListener("click", () => {
+    toggleBtn.addEventListener("click", () => {
       const hidden = listEl.classList.toggle("hidden");
       chevron.textContent = hidden ? "▸" : "▾";
-      header.setAttribute("aria-expanded", hidden ? "false" : "true");
+      toggleBtn.setAttribute("aria-expanded", hidden ? "false" : "true");
     });
+
+    const counts = el("span", { class: "flex items-center gap-3" }, [
+      countChip("active", group.counts.active),
+      countChip("paused", group.counts.paused),
+      countChip("stopped", group.counts.stopped)
+    ]);
+
+    const sheetStatus = el("span", { class: "text-xs" });
+    const rightCluster = [counts];
+    // Nút "Xuất Google Sheet" — chỉ hiện khi Page có chiến dịch.
+    if ((group.campaigns || []).length > 0) {
+      const sheetBtn = el("button", {
+        class:
+          "rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50",
+        text: "📊 Google Sheet",
+        attrs: { type: "button", title: "Xuất Page này ra Google Sheet (mỗi chiến dịch 1 tab)" }
+      });
+      sheetBtn.addEventListener("click", () => exportPageToSheet(group, sheetBtn, sheetStatus));
+      rightCluster.push(sheetBtn);
+    }
+
+    const header = el("div", { class: "flex flex-wrap items-center gap-3 px-4 py-3 hover:bg-slate-50" }, [
+      toggleBtn,
+      el("div", { class: "flex items-center gap-3" }, rightCluster),
+      sheetStatus
+    ]);
 
     if (campaigns.length === 0) {
       listEl.append(el("p", { class: "px-4 py-3 text-sm text-slate-400", text: "Chưa có chiến dịch." }));
@@ -376,6 +394,61 @@ export function mountAdsSection(rootEl) {
       header,
       listEl
     ]);
+  }
+
+  // Xuất 1 Page ra Google Sheet: gửi danh sách chiến dịch của Page + khoảng thời gian;
+  // server tạo file (mỗi chiến dịch 1 tab, có kết quả theo ngày) và trả link.
+  async function exportPageToSheet(group, btn, statusEl) {
+    const campaigns = (group.campaigns || []).map((c) => ({
+      id: c.id,
+      name: c.name,
+      adAccountId: c.adAccountId
+    }));
+    if (campaigns.length === 0) {
+      statusEl.replaceChildren(el("span", { class: "text-xs text-slate-400", text: "Không có chiến dịch để xuất." }));
+      return;
+    }
+
+    btn.disabled = true;
+    statusEl.replaceChildren(el("span", { class: "text-xs text-slate-500", text: "Đang tạo Google Sheet…" }));
+
+    try {
+      const data = await fetchJson(
+        `/api/ads/pages/${encodeURIComponent(group.pageId || "khac")}/export-sheet`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            pageName: group.pageName,
+            datePreset: datePresetSelect.value || DEFAULT_PRESET,
+            campaigns
+          })
+        }
+      );
+      const url = data.spreadsheet && data.spreadsheet.spreadsheetUrl;
+      statusEl.replaceChildren(
+        url
+          ? el("a", {
+              class: "text-xs font-semibold text-brand-600 underline",
+              text: "Mở file Google Sheet ↗",
+              attrs: { href: url, target: "_blank", rel: "noopener" }
+            })
+          : el("span", { class: "text-xs text-emerald-600", text: "Đã tạo file." })
+      );
+    } catch (error) {
+      if (error.details && error.details.reason === "google_sheets_not_connected") {
+        statusEl.replaceChildren(
+          el("a", {
+            class: "text-xs font-semibold text-brand-600 underline",
+            text: "Kết nối Google Sheets rồi thử lại →",
+            attrs: { href: "/auth/google/sheets" }
+          })
+        );
+      } else {
+        statusEl.replaceChildren(el("span", { class: "text-xs text-rose-600", text: `Lỗi: ${error.message}` }));
+      }
+    } finally {
+      btn.disabled = false;
+    }
   }
 
   function renderCampaignRow(campaign) {
