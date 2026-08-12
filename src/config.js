@@ -87,6 +87,9 @@ const config = {
       // business_management: liệt kê Page nằm trong Business Portfolio (owned_pages/client_pages)
       // mà /me/accounts không trả về vì tài khoản không được gán vai trò trực tiếp trên Page.
       "business_management",
+      // ads_read: đọc Ads Insights (kết quả + nhân khẩu học của chiến dịch quảng cáo) qua Marketing API.
+      // Dùng USER access token (KHÔNG phải page token). Đọc QC của người dùng khác cần Advanced Access + App Review.
+      "ads_read",
       "instagram_basic",
       // instagram_manage_insights: đọc nhân khẩu học người theo dõi IG (tuổi/giới tính/thành phố/quốc gia).
       "instagram_manage_insights",

@@ -17,9 +17,10 @@ const gbpRoutes = require("./src/routes/gbp.routes");
 const tiktokRoutes = require("./src/routes/tiktok.routes");
 const autoPublishRoutes = require("./src/routes/auto-publish.routes");
 const statsRoutes = require("./src/routes/stats.routes");
+const adsRoutes = require("./src/routes/ads.routes");
 const leadRoutes = require("./src/routes/lead.routes");
 const accountRoutes = require("./src/routes/account.routes");
-const { initAccountSchema, initCrawledAudienceSchema, initCrawlJobsSchema, initWorkerSchema, backfillSnapshotOwners } = require("./src/db/postgres");
+const { initAccountSchema, initCrawledAudienceSchema, initCrawlJobsSchema, initWorkerSchema, initAdsInsightsSchema, backfillSnapshotOwners } = require("./src/db/postgres");
 const workerRoutes = require("./src/routes/worker.routes");
 const crawlerRoutes = require("./src/routes/crawler.routes");
 const crawlJobsService = require("./src/services/crawl-jobs.service");
@@ -60,6 +61,12 @@ Promise.all([initCrawledAudienceSchema(), initCrawlJobsSchema()])
   .catch((error) => {
     console.error("[Postgres] Khởi tạo schema cào thất bại:", error.message);
   });
+
+// Bảng lịch sử Ads Insights (Marketing API). Độc lập với schema cào -> chuỗi
+// riêng, best-effort: Postgres tắt/lỗi không được chặn khởi động server.
+initAdsInsightsSchema().catch((error) => {
+  console.error("[Postgres] Khởi tạo schema Ads Insights thất bại:", error.message);
+});
 
 // Session lưu bền trong SQLite (khởi tạo sau initDatabase để bảng sessions đã có).
 const sessionStore = new SqliteSessionStore();
@@ -136,6 +143,7 @@ app.use("/api", gbpRoutes);
 app.use("/api", tiktokRoutes);
 app.use("/api", autoPublishRoutes);
 app.use("/api", statsRoutes);
+app.use("/api", adsRoutes);
 app.use("/api", notionRoutes);
 
 let notionAutoPublishRunning = false;

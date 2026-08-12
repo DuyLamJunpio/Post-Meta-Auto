@@ -1,5 +1,6 @@
 import { fetchJson, el, formatTime } from "/shared/api.js";
 import { mountShell } from "/shared/shell.js";
+import { mountAdsSection } from "/ads-section.js";
 
 mountShell("/statistics.html");
 
@@ -8,6 +9,14 @@ const refreshBtn = document.querySelector("#refresh-btn");
 const statusEl = document.querySelector("#status");
 const warningsEl = document.querySelector("#warnings");
 const reportEl = document.querySelector("#report");
+
+// Chuyển tab Thống kê Page ↔ Quảng cáo.
+const statsTabs = document.querySelector("#stats-tabs");
+const statsTitle = document.querySelector("#stats-title");
+const statsSubtitle = document.querySelector("#stats-subtitle");
+const pageStatsControls = document.querySelector("#page-stats-controls");
+const pageStatsView = document.querySelector("#page-stats-view");
+const adsView = document.querySelector("#ads-view");
 
 let chartInstances = [];
 let lastAnalytics = null;
@@ -1002,5 +1011,66 @@ async function loadReport(pageId) {
 
 pageSelect.addEventListener("change", () => loadReport(pageSelect.value));
 refreshBtn.addEventListener("click", () => loadReport(pageSelect.value));
+
+// --- Chuyển tab: Thống kê Page ↔ Quảng cáo ---------------------------------
+//
+// Tab Quảng cáo nạp lười (chỉ dựng khi bấm vào lần đầu) và HỦY khi rời tab để
+// không giữ Chart.js cũ. Các control riêng của thống kê Page (chọn Page, Tải
+// lại, thanh cào) được ẩn ở tab Quảng cáo vì không áp dụng cho quảng cáo.
+
+const TAB_META = {
+  page: {
+    title: "Thống kê chi tiết theo Page",
+    subtitle: "Toàn bộ lịch sử bài đăng · Facebook & Instagram · phân tích tương tác"
+  },
+  ads: {
+    title: "Báo cáo quảng cáo",
+    subtitle: "Chi tiêu, hiển thị và hiệu quả chiến dịch · Meta Ads Insights"
+  }
+};
+
+// Giữ tham chiếu để hủy Chart.js của tab Quảng cáo khi rời tab.
+let adsController = null;
+let activeTab = "page";
+
+function paintTabButtons(tab) {
+  for (const btn of statsTabs.querySelectorAll("[data-stats-tab]")) {
+    const isActive = btn.dataset.statsTab === tab;
+    btn.className =
+      "rounded-lg px-4 py-2 text-sm font-medium transition-colors " +
+      (isActive ? "bg-brand-500 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100");
+    btn.setAttribute("aria-selected", isActive ? "true" : "false");
+  }
+}
+
+function switchTab(tab) {
+  if (tab === activeTab || !TAB_META[tab]) return;
+  activeTab = tab;
+  paintTabButtons(tab);
+
+  const meta = TAB_META[tab];
+  statsTitle.textContent = meta.title;
+  statsSubtitle.textContent = meta.subtitle;
+
+  const showAds = tab === "ads";
+  pageStatsControls.classList.toggle("hidden", showAds);
+  crawlToolbar.classList.toggle("hidden", showAds);
+  pageStatsView.classList.toggle("hidden", showAds);
+  adsView.classList.toggle("hidden", !showAds);
+
+  if (showAds) {
+    // Dựng mới mỗi lần vào tab: dữ liệu luôn tươi, không giữ chart cũ.
+    adsController = mountAdsSection(adsView);
+  } else if (adsController) {
+    // Rời tab Quảng cáo: hủy chart + dọn DOM để không rò rỉ.
+    adsController.destroy();
+    adsController = null;
+  }
+}
+
+paintTabButtons("page");
+for (const btn of statsTabs.querySelectorAll("[data-stats-tab]")) {
+  btn.addEventListener("click", () => switchTab(btn.dataset.statsTab));
+}
 
 loadPages();

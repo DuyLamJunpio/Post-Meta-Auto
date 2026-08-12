@@ -23,10 +23,10 @@
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5" /></svg>
           </button>
           <div class="min-w-0 flex-1">
-            <h1 class="text-lg font-bold text-slate-900">Thống kê chi tiết theo Page</h1>
-            <p class="text-xs text-slate-500">Toàn bộ lịch sử bài đăng · Facebook &amp; Instagram · phân tích tương tác</p>
+            <h1 id="stats-title" class="text-lg font-bold text-slate-900">Thống kê chi tiết theo Page</h1>
+            <p id="stats-subtitle" class="text-xs text-slate-500">Toàn bộ lịch sử bài đăng · Facebook &amp; Instagram · phân tích tương tác</p>
           </div>
-          <div class="flex items-center gap-2">
+          <div id="page-stats-controls" class="flex items-center gap-2">
             <label for="page-select" class="sr-only">Chọn Page</label>
             <select id="page-select" class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 focus:border-brand-500 focus:outline-none">
               <option value="">Đang tải Page…</option>
@@ -49,9 +49,30 @@
         </header>
 
         <main class="mx-auto w-full max-w-7xl flex-1 space-y-6 p-4 lg:p-8">
-          <p id="status" class="text-sm text-slate-500" aria-live="polite"></p>
-          <div id="warnings" class="space-y-2"></div>
-          <div id="report" class="space-y-8"></div>
+          <!--
+            Bộ chuyển tab. "Thống kê Page" giữ nguyên hành vi cũ; "Quảng cáo"
+            nạp lười public/ads-section.js. statistics.js wire click + ẩn/hiện
+            các control tương ứng cho mỗi tab.
+          -->
+          <div
+            id="stats-tabs"
+            class="inline-flex gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm"
+            role="tablist"
+            aria-label="Chế độ xem thống kê"
+          >
+            <button type="button" data-stats-tab="page" role="tab" aria-selected="true" class="rounded-lg px-4 py-2 text-sm font-medium transition-colors">Thống kê Page</button>
+            <button type="button" data-stats-tab="ads" role="tab" aria-selected="false" class="rounded-lg px-4 py-2 text-sm font-medium transition-colors">Quảng cáo</button>
+          </div>
+
+          <!-- Tab 1: thống kê Page (không đổi). -->
+          <div id="page-stats-view" class="space-y-6">
+            <p id="status" class="text-sm text-slate-500" aria-live="polite"></p>
+            <div id="warnings" class="space-y-2"></div>
+            <div id="report" class="space-y-8"></div>
+          </div>
+
+          <!-- Tab 2: quảng cáo — ads-section.js dựng toàn bộ nội dung vào đây. -->
+          <div id="ads-view" class="hidden"></div>
         </main>
       </div>
     </div>

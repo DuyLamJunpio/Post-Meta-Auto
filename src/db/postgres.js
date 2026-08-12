@@ -294,6 +294,68 @@ async function initWorkerSchema() {
   console.log("[Postgres] Bảng worker_tokens + crawl_workers sẵn sàng.");
 }
 
+// Số liệu Ads Insights (Marketing API) chụp theo chiến dịch. Cùng lý do ở
+// Postgres như crawled_audience_*: Render xoá đĩa mỗi deploy nên SQLite mất lịch
+// sử. snapshots = 1 lần chụp cho (tài khoản QC × chiến dịch × khoảng × ngày chốt);
+// rows = các con số của lần chụp đó (tổng hợp cả kỳ row_date NULL + chuỗi theo ngày).
+async function initAdsInsightsSchema() {
+  const db = getSql();
+  if (!db) {
+    return;
+  }
+
+  await db`
+    CREATE TABLE IF NOT EXISTS ads_insights_snapshots (
+      id              BIGSERIAL PRIMARY KEY,
+      ad_account_id   TEXT NOT NULL,
+      level           TEXT NOT NULL,            -- 'campaign'
+      object_id       TEXT NOT NULL,            -- campaign id
+      date_preset     TEXT,
+      date_start      DATE,
+      date_stop       DATE,
+      currency        TEXT,
+      user_id         BIGINT,                   -- tenant users.id, nullable (legacy)
+      idempotency_key TEXT,
+      captured_at     TIMESTAMPTZ DEFAULT now(),
+      created_at      TIMESTAMPTZ DEFAULT now()
+    )
+  `;
+
+  await db`
+    CREATE TABLE IF NOT EXISTS ads_insights_rows (
+      id              BIGSERIAL PRIMARY KEY,
+      snapshot_id     BIGINT NOT NULL
+                      REFERENCES ads_insights_snapshots(id) ON DELETE CASCADE,
+      row_date        DATE,                     -- ngày cho chuỗi thời gian; NULL = tổng hợp cả kỳ
+      breakdown_key   TEXT DEFAULT 'total',     -- Pha 2: 'age_gender' | 'country' | 'region'
+      breakdown_value TEXT,                     -- NULL cho total
+      metric          TEXT NOT NULL,            -- spend/impressions/reach/clicks/...
+      value           DOUBLE PRECISION
+    )
+  `;
+
+  // Chống tạo trùng khi client gọi lại trong ngày. UNIQUE MỘT PHẦN: chỉ ràng buộc
+  // khi có key, để bản legacy (key NULL) không vi phạm.
+  await db`
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_ads_insights_snapshots_idem
+      ON ads_insights_snapshots (idempotency_key)
+      WHERE idempotency_key IS NOT NULL
+  `;
+
+  // Câu hỏi hay dùng: "bản chụp gần nhất của chiến dịch này (theo tenant)".
+  await db`
+    CREATE INDEX IF NOT EXISTS idx_ads_insights_snapshots_lookup
+      ON ads_insights_snapshots (ad_account_id, object_id, user_id, captured_at DESC)
+  `;
+
+  await db`
+    CREATE INDEX IF NOT EXISTS idx_ads_insights_rows_snapshot
+      ON ads_insights_rows (snapshot_id)
+  `;
+
+  console.log("[Postgres] Bảng ads_insights_* sẵn sàng.");
+}
+
 // Gán chủ sở hữu cho các snapshot CŨ chưa có user_id, suy từ crawl_jobs đã liên
 // kết (crawl_jobs.snapshot_id -> snapshots.id). Chạy MỘT LẦN lúc khởi động, SAU
 // khi cả bảng snapshots (đã thêm cột user_id) lẫn crawl_jobs đều sẵn sàng.
@@ -329,5 +391,6 @@ module.exports = {
   initCrawledAudienceSchema,
   initCrawlJobsSchema,
   initWorkerSchema,
+  initAdsInsightsSchema,
   backfillSnapshotOwners
 };

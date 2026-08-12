@@ -910,6 +910,258 @@ async function getPageAudience({ pageId, pageAccessToken }) {
   };
 }
 
+// ===== Marketing API (Ads Insights) =====
+// KHÁC các insight ở trên (dùng PAGE token): Ads Insights bắt buộc USER access token có scope
+// ads_read, và ad account phải thêm tiền tố "act_". User phải có vai trò trên tài khoản QC đó.
+// Đọc dữ liệu QC của người khác (SaaS) còn cần Advanced Access + App Review + Business Verification.
+
+// Chuẩn hoá id ad account: chấp nhận "act_123" hoặc "123" -> luôn trả "act_123".
+function normalizeAdAccountId(adAccountId) {
+  const raw = String(adAccountId || "").trim();
+  if (!raw) return "";
+  return raw.startsWith("act_") ? raw : `act_${raw}`;
+}
+
+// Liệt kê tài khoản quảng cáo mà user truy cập được (/me/adaccounts). Cần scope ads_read.
+async function getAdAccounts(userAccessToken) {
+  try {
+    const accounts = await fetchAllPaged(`${config.facebook.graphApiBaseUrl}/me/adaccounts`, {
+      fields: "account_id,name,currency,account_status,timezone_name,business{id,name}",
+      access_token: userAccessToken,
+      limit: 100
+    });
+
+    return accounts.map((account) => ({
+      // id đã kèm tiền tố act_ để gọi thẳng các edge (/act_{id}/campaigns, /act_{id}/insights).
+      id: account.account_id ? `act_${account.account_id}` : account.id,
+      accountId: account.account_id || String(account.id || "").replace(/^act_/, ""),
+      name: account.name || "",
+      currency: account.currency || "",
+      // account_status: 1=ACTIVE, 2=DISABLED, 3=UNSETTLED... (giữ số thô, UI/service diễn giải).
+      status: account.account_status ?? null,
+      timezone: account.timezone_name || "",
+      business: account.business ? { id: account.business.id, name: account.business.name || "" } : null
+    }));
+  } catch (error) {
+    handleGraphError(
+      "get_ad_accounts",
+      error,
+      "Không lấy được danh sách tài khoản quảng cáo. Token có thể thiếu quyền ads_read — hãy đăng xuất Facebook rồi đăng nhập lại và cấp đủ quyền."
+    );
+  }
+}
+
+// Liệt kê chiến dịch của một tài khoản quảng cáo (/act_{id}/campaigns). Cần scope ads_read.
+async function getCampaigns(adAccountId, userAccessToken) {
+  const actId = normalizeAdAccountId(adAccountId);
+  if (!actId) {
+    throw createPublicError(400, "Thiếu mã tài khoản quảng cáo (ad account id).");
+  }
+
+  try {
+    const campaigns = await fetchAllPaged(`${config.facebook.graphApiBaseUrl}/${actId}/campaigns`, {
+      fields:
+        "id,name,objective,status,effective_status,daily_budget,lifetime_budget,start_time,stop_time",
+      access_token: userAccessToken,
+      limit: 200
+    });
+
+    return campaigns.map((campaign) => ({
+      id: campaign.id,
+      name: campaign.name || "",
+      objective: campaign.objective || "",
+      status: campaign.status || "",
+      effectiveStatus: campaign.effective_status || "",
+      // Ngân sách tính theo đơn vị nhỏ nhất của tiền tệ (vd VND không có phần lẻ; USD là cent).
+      dailyBudget: campaign.daily_budget != null ? Number(campaign.daily_budget) : null,
+      lifetimeBudget: campaign.lifetime_budget != null ? Number(campaign.lifetime_budget) : null,
+      startTime: campaign.start_time || null,
+      stopTime: campaign.stop_time || null
+    }));
+  } catch (error) {
+    handleGraphError("get_campaigns", error, "Không lấy được danh sách chiến dịch quảng cáo.");
+  }
+}
+
+// Tiền tệ của tài khoản QC (best-effort) để định dạng tiền trong báo cáo Ads.
+// Không throw: lỗi -> trả "" để phần báo cáo vẫn hiện (frontend tự để trống ký hiệu tiền).
+async function getAdAccountCurrency(adAccountId, userAccessToken) {
+  const actId = normalizeAdAccountId(adAccountId);
+  if (!actId) {
+    return "";
+  }
+
+  try {
+    const response = await axios.get(`${config.facebook.graphApiBaseUrl}/${actId}`, {
+      params: { fields: "currency", access_token: userAccessToken }
+    });
+    return (response.data && response.data.currency) || "";
+  } catch (error) {
+    const graphError = error.response && error.response.data && error.response.data.error;
+    console.warn(
+      "[Meta Graph API] Không lấy được tiền tệ tài khoản quảng cáo:",
+      graphError ? graphError.message : error.message
+    );
+    return "";
+  }
+}
+
+// Số liệu Ads Insights của MỘT chiến dịch, chia theo ngày (time_increment=1).
+// BEST-EFFORT: nếu lỗi quyền/vai trò (OAuthException hoặc code 10/190/200/294) thì
+// trả { available:false, reason } thay vì throw, để trang báo cáo hiện lý do rõ ràng
+// thay vì rơi vào lỗi 502. Lỗi mạng/khác -> handleGraphError (ném 502 có details).
+//
+// KHÔNG tự tính toán ở đây: chỉ trả mảng data thô từ Graph (mỗi phần tử = 1 ngày);
+// việc dựng overview/daily do src/utils/ads-math.js đảm nhiệm.
+async function getCampaignInsights({ campaignId, userAccessToken, datePreset = "last_30d" }) {
+  if (!campaignId) {
+    throw createPublicError(400, "Thiếu mã chiến dịch (campaign id).");
+  }
+
+  const baseFields = [
+    "campaign_name",
+    "objective",
+    "impressions",
+    "reach",
+    "frequency",
+    "clicks",
+    "ctr",
+    "cpc",
+    "cpm",
+    "spend",
+    "actions",
+    "cost_per_action_type"
+  ];
+  // results/cost_per_result là field mới; một số objective/phiên bản API từ chối chúng bằng
+  // lỗi code 100 (KHÔNG phải lỗi quyền). Tách riêng để có thể thử lại KHÔNG có 2 field này —
+  // ads-math sẽ suy "results" từ actions, nên báo cáo vẫn hiện thay vì hỏng cả 502.
+  const resultFields = ["results", "cost_per_result"];
+
+  async function requestFields(fields) {
+    return fetchAllPaged(`${config.facebook.graphApiBaseUrl}/${campaignId}/insights`, {
+      fields: fields.join(","),
+      time_increment: 1,
+      date_preset: datePreset,
+      access_token: userAccessToken,
+      limit: 500
+    });
+  }
+
+  try {
+    const rows = await requestFields([...baseFields, ...resultFields]);
+    return { available: true, rows };
+  } catch (error) {
+    const graphError = error.response && error.response.data && error.response.data.error;
+    const type = graphError && graphError.type;
+    const code = Number(graphError && graphError.code);
+    const isPermissionError = type === "OAuthException" || [10, 190, 200, 294].includes(code);
+
+    if (isPermissionError) {
+      const providerMessage = (graphError && graphError.message) || error.message || "Không rõ";
+      console.warn("[Meta Graph API] Không lấy được Ads Insights (quyền/vai trò):", {
+        code,
+        type,
+        providerMessage
+      });
+      return {
+        available: false,
+        reason:
+          `Không lấy được số liệu quảng cáo của chiến dịch: ${providerMessage}. ` +
+          "Token có thể thiếu quyền ads_read, hoặc bạn không có vai trò trên tài khoản quảng cáo này."
+      };
+    }
+
+    // Lỗi field không hỗ trợ (thường code 100, vd objective không có results/cost_per_result):
+    // thử lại KHÔNG có 2 field đó. ads-math tự suy "results" từ actions.
+    if (code === 100) {
+      try {
+        const rows = await requestFields(baseFields);
+        console.warn(
+          "[Meta Graph API] Ads Insights: objective không hỗ trợ results/cost_per_result — đã bỏ 2 field và suy từ actions."
+        );
+        return { available: true, rows, droppedFields: resultFields };
+      } catch (retryError) {
+        handleGraphError("get_campaign_insights", retryError, "Không lấy được số liệu quảng cáo của chiến dịch.");
+      }
+    }
+
+    handleGraphError("get_campaign_insights", error, "Không lấy được số liệu quảng cáo của chiến dịch.");
+  }
+}
+
+// Nhân khẩu học người XEM quảng cáo của MỘT chiến dịch, tách theo từng chiều
+// (age+gender / country / region) bằng tham số breakdowns của Ads Insights.
+// Meta KHÔNG cho ghép tuỳ ý các chiều này -> gọi TÁCH từng chiều song song (allSettled).
+//
+// KHÔNG time_increment: lấy tổng hợp CẢ KỲ cho mỗi phân khúc (không chia theo ngày).
+// Giá trị trả về là ĐẾM THÔ (impressions/reach/clicks/spend) cho từng phân khúc —
+// KHÔNG phải phần trăm; việc tính tỷ trọng do ads-math đảm nhiệm.
+//
+// BEST-EFFORT theo TỪNG chiều: một chiều lỗi (thiếu quyền, code 100 không hỗ trợ region,
+// mạng...) -> chiều đó trả { available:false, reason } tiếng Việt, KHÔNG ném và KHÔNG
+// làm hỏng các chiều còn lại. Nhân khẩu học là phần phụ, không được đánh sập cả báo cáo.
+async function getCampaignBreakdowns({ campaignId, userAccessToken, datePreset = "last_30d" }) {
+  if (!campaignId) {
+    throw createPublicError(400, "Thiếu mã chiến dịch (campaign id).");
+  }
+
+  const metricFields = ["impressions", "reach", "clicks", "spend"];
+
+  async function requestBreakdown(breakdowns) {
+    return fetchAllPaged(`${config.facebook.graphApiBaseUrl}/${campaignId}/insights`, {
+      fields: metricFields.join(","),
+      breakdowns,
+      date_preset: datePreset,
+      access_token: userAccessToken,
+      limit: 500
+    });
+  }
+
+  // Bọc 1 chiều: thành công -> { available:true, rows }; lỗi -> { available:false, reason }.
+  async function safeDimension(breakdowns, humanName) {
+    try {
+      const rows = await requestBreakdown(breakdowns);
+      return { available: true, rows };
+    } catch (error) {
+      const graphError = error.response && error.response.data && error.response.data.error;
+      const type = graphError && graphError.type;
+      const code = Number(graphError && graphError.code);
+      const providerMessage = (graphError && graphError.message) || error.message || "Không rõ";
+      const isPermissionError = type === "OAuthException" || [10, 190, 200, 294].includes(code);
+
+      console.warn(`[Meta Graph API] Không lấy được nhân khẩu học (${humanName}):`, {
+        code,
+        type,
+        providerMessage
+      });
+
+      if (isPermissionError) {
+        return {
+          available: false,
+          reason:
+            `Không lấy được nhân khẩu học theo ${humanName}: ${providerMessage}. ` +
+            "Token có thể thiếu quyền ads_read, hoặc bạn không có vai trò trên tài khoản quảng cáo này."
+        };
+      }
+      if (code === 100) {
+        return {
+          available: false,
+          reason: `Facebook không hỗ trợ tách theo ${humanName} cho chiến dịch này (${providerMessage}).`
+        };
+      }
+      return { available: false, reason: `Không lấy được nhân khẩu học theo ${humanName}: ${providerMessage}.` };
+    }
+  }
+
+  const [ageGender, country, region] = await Promise.all([
+    safeDimension("age,gender", "tuổi & giới tính"),
+    safeDimension("country", "quốc gia"),
+    safeDimension("region", "vùng/tỉnh")
+  ]);
+
+  return { dimensions: { ageGender, country, region } };
+}
+
 async function createPagePost(pageId, pageAccessToken, message, options = {}) {
   try {
     const form = new URLSearchParams();
@@ -1402,6 +1654,12 @@ module.exports = {
   getPageInsights,
   getInstagramAudience,
   getPageAudience,
+  normalizeAdAccountId,
+  getAdAccounts,
+  getCampaigns,
+  getAdAccountCurrency,
+  getCampaignInsights,
+  getCampaignBreakdowns,
   createPagePost,
   createPageContent,
   updatePagePost,
