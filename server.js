@@ -20,7 +20,7 @@ const statsRoutes = require("./src/routes/stats.routes");
 const adsRoutes = require("./src/routes/ads.routes");
 const leadRoutes = require("./src/routes/lead.routes");
 const accountRoutes = require("./src/routes/account.routes");
-const { initAccountSchema, initCrawledAudienceSchema, initCrawlJobsSchema, initWorkerSchema, initAdsInsightsSchema, backfillSnapshotOwners } = require("./src/db/postgres");
+const { initAccountSchema, initCrawledAudienceSchema, initCrawlJobsSchema, initWorkerSchema, initAdsInsightsSchema, initAdsExportSheetsSchema, backfillSnapshotOwners } = require("./src/db/postgres");
 const workerRoutes = require("./src/routes/worker.routes");
 const crawlerRoutes = require("./src/routes/crawler.routes");
 const crawlJobsService = require("./src/services/crawl-jobs.service");
@@ -66,6 +66,11 @@ Promise.all([initCrawledAudienceSchema(), initCrawlJobsSchema()])
 // riêng, best-effort: Postgres tắt/lỗi không được chặn khởi động server.
 initAdsInsightsSchema().catch((error) => {
   console.error("[Postgres] Khởi tạo schema Ads Insights thất bại:", error.message);
+});
+
+// Bảng nhớ file Google Sheet đã xuất theo Page (để dồn dữ liệu vào file cũ).
+initAdsExportSheetsSchema().catch((error) => {
+  console.error("[Postgres] Khởi tạo schema ads_export_sheets thất bại:", error.message);
 });
 
 // Session lưu bền trong SQLite (khởi tạo sau initDatabase để bảng sessions đã có).

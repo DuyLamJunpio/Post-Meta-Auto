@@ -146,7 +146,8 @@ async function buildCampaignInsights({
   adAccountId,
   userAccessToken,
   userId = null,
-  datePreset = "last_30d"
+  datePreset = "last_30d",
+  timeRange = null
 }) {
   const normalizedAccount = facebookService.normalizeAdAccountId(adAccountId);
   const warnings = [];
@@ -155,7 +156,8 @@ async function buildCampaignInsights({
   const insight = await facebookService.getCampaignInsights({
     campaignId,
     userAccessToken,
-    datePreset
+    datePreset,
+    timeRange
   });
 
   // Lỗi quyền/vai trò -> báo cáo "không khả dụng" kèm lý do, KHÔNG ném.
@@ -338,7 +340,8 @@ async function buildCampaignDemographics({
   adAccountId,
   userAccessToken,
   userId = null,
-  datePreset = "last_30d"
+  datePreset = "last_30d",
+  timeRange = null
 }) {
   const normalizedAccount = facebookService.normalizeAdAccountId(adAccountId);
   const warnings = [];
@@ -347,7 +350,8 @@ async function buildCampaignDemographics({
   const { dimensions } = await facebookService.getCampaignBreakdowns({
     campaignId,
     userAccessToken,
-    datePreset
+    datePreset,
+    timeRange
   });
 
   const ageGender = resolveDimension(dimensions.ageGender, adsMath.buildAgeGenderBreakdown);

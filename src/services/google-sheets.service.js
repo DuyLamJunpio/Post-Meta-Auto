@@ -420,6 +420,237 @@ async function createPageSpreadsheet(auth, { pageName, campaigns }) {
   };
 }
 
+// ===== Chế độ DỒN DATA: 1 file/Page, mỗi lần xuất thêm 1 DÒNG tổng hợp ========
+
+const SUMMARY_HEADER = [
+  "Ngày xuất", "Khoảng", "Từ ngày", "Đến ngày",
+  "Chi tiêu", "Hiển thị", "Tiếp cận", "Lượt nhấp",
+  "CTR (%)", "CPC", "CPM", "Tần suất", "Kết quả", "Chi phí/KQ"
+];
+
+// Tên tab ỔN ĐỊNH theo chiến dịch (kèm đuôi id) để lần xuất sau GHI TIẾP đúng tab, kể cả
+// khi 2 chiến dịch trùng tên hoặc chiến dịch bị đổi tên.
+function campaignTabTitle(name, campaignId) {
+  const idTail = String(campaignId || "").slice(-6);
+  const base = sanitizeSheetTitle(name).slice(0, 80);
+  const suffix = idTail ? ` [${idTail}]` : "";
+  return (base + suffix).slice(0, 95);
+}
+function demoTabTitle(name, campaignId) {
+  return `${campaignTabTitle(name, campaignId).slice(0, 89)} · NKH`;
+}
+
+// 1 dòng tổng hợp cho 1 lần xuất của 1 chiến dịch (số dạng NUMBER để Sheets tính được).
+function buildSummaryRow(entry) {
+  const ov = entry.overview || {};
+  return [
+    entry.capturedAt || "",
+    entry.periodLabel || "",
+    entry.dateStart || "",
+    entry.dateStop || "",
+    cellNumber(ov.spend),
+    cellNumber(ov.impressions),
+    cellNumber(ov.reach),
+    cellNumber(ov.clicks),
+    cellNumber(ov.ctr),
+    cellNumber(ov.cpc),
+    cellNumber(ov.cpm),
+    cellNumber(ov.frequency),
+    cellNumber(ov.results),
+    cellNumber(ov.costPerResult)
+  ];
+}
+
+// 2D values cho tab nhân khẩu học (bản MỚI NHẤT, ghi đè mỗi lần xuất).
+function buildDemoValues(entry) {
+  const rows = [];
+  rows.push([`Nhân khẩu học — ${entry.name || ""}`]);
+  rows.push([`Cập nhật: ${entry.capturedAt || ""} · Khoảng: ${entry.periodLabel || ""}`]);
+  rows.push([]);
+
+  const demo = entry.demographics;
+  if (!demo) {
+    rows.push(["Không có dữ liệu nhân khẩu học."]);
+    return rows;
+  }
+
+  rows.push(["[Tuổi × giới tính]"]);
+  if (demo.ageGender && demo.ageGender.available) {
+    rows.push(["Nhóm tuổi", "Giới tính", "Hiển thị", "Tiếp cận", "Lượt nhấp", "Chi tiêu", "Tỷ trọng (%)"]);
+    for (const seg of demo.ageGender.segments || []) {
+      rows.push([
+        seg.age,
+        GENDER_LABELS[seg.gender] || seg.gender,
+        cellNumber(seg.impressions),
+        cellNumber(seg.reach),
+        cellNumber(seg.clicks),
+        cellNumber(seg.spend),
+        cellNumber(seg.share)
+      ]);
+    }
+  } else {
+    rows.push(["Không khả dụng", (demo.ageGender && demo.ageGender.reason) || ""]);
+  }
+  pushCategoricalDim(rows, demo.country, "[Top quốc gia]", "Quốc gia", countryLabel);
+  pushCategoricalDim(rows, demo.region, "[Top vùng/tỉnh]", "Vùng/tỉnh", (v) =>
+    !v || v === "unknown" ? "Không rõ" : v
+  );
+  return rows;
+}
+
+// Dựng "entry" cho 1 chiến dịch: tên tab + dòng tổng hợp + (tuỳ) values nhân khẩu học.
+function buildExportEntry(campaign, periodMeta) {
+  const daily = Array.isArray(campaign.daily) ? campaign.daily : [];
+  const dateStart = periodMeta.dateStart || (daily[0] && daily[0].date) || "";
+  const dateStop = periodMeta.dateStop || (daily[daily.length - 1] && daily[daily.length - 1].date) || "";
+  const entry = {
+    name: campaign.name,
+    overview: campaign.overview || {},
+    demographics: campaign.demographics || null,
+    capturedAt: periodMeta.capturedAt || "",
+    periodLabel: periodMeta.periodLabel || "",
+    dateStart,
+    dateStop
+  };
+  const hasDemo = Boolean(campaign.available && campaign.demographics);
+  return {
+    campaignTab: campaignTabTitle(campaign.name, campaign.campaignId),
+    demoTab: hasDemo ? demoTabTitle(campaign.name, campaign.campaignId) : null,
+    header: SUMMARY_HEADER,
+    summaryRow: buildSummaryRow(entry),
+    demoValues: hasDemo ? buildDemoValues(entry) : null
+  };
+}
+
+// --- Sheets REST helpers (axios) ---
+
+// A1 range đã encode cho path URL: 'Tab Name'!A1 (nháy đơn nhân đôi, encode cả ! và ').
+function rangeUrl(tabTitle, cellPart) {
+  const raw = `'${String(tabTitle).replace(/'/g, "''")}'` + (cellPart ? `!${cellPart}` : "");
+  return encodeURIComponent(raw);
+}
+
+async function apiGetSpreadsheet(accessToken, spreadsheetId) {
+  const res = await axios.get(`${config.googleSheets.sheetsApiBaseUrl}/${spreadsheetId}`, {
+    params: { fields: "spreadsheetId,spreadsheetUrl,sheets.properties(sheetId,title)" },
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+  const data = res.data || {};
+  return {
+    spreadsheetId: data.spreadsheetId,
+    spreadsheetUrl: data.spreadsheetUrl,
+    titles: new Set((data.sheets || []).map((s) => s.properties && s.properties.title).filter(Boolean))
+  };
+}
+
+async function apiCreateSpreadsheet(accessToken, title, tabTitles) {
+  const titles = tabTitles.length ? tabTitles : ["Tổng"];
+  const res = await axios.post(
+    config.googleSheets.sheetsApiBaseUrl,
+    { properties: { title }, sheets: titles.map((t) => ({ properties: { title: t } })) },
+    { headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" } }
+  );
+  return { spreadsheetId: res.data.spreadsheetId, spreadsheetUrl: res.data.spreadsheetUrl };
+}
+
+async function apiAddSheets(accessToken, spreadsheetId, titles) {
+  if (titles.length === 0) return;
+  await axios.post(
+    `${config.googleSheets.sheetsApiBaseUrl}/${spreadsheetId}:batchUpdate`,
+    { requests: titles.map((t) => ({ addSheet: { properties: { title: t } } })) },
+    { headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" } }
+  );
+}
+
+async function apiUpdate(accessToken, spreadsheetId, tabTitle, values) {
+  await axios.put(
+    `${config.googleSheets.sheetsApiBaseUrl}/${spreadsheetId}/values/${rangeUrl(tabTitle, "A1")}`,
+    { values },
+    {
+      params: { valueInputOption: "RAW" },
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" }
+    }
+  );
+}
+
+async function apiAppend(accessToken, spreadsheetId, tabTitle, values) {
+  await axios.post(
+    `${config.googleSheets.sheetsApiBaseUrl}/${spreadsheetId}/values/${rangeUrl(tabTitle, "A1")}:append`,
+    { values },
+    {
+      params: { valueInputOption: "RAW", insertDataOption: "INSERT_ROWS" },
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" }
+    }
+  );
+}
+
+async function apiClear(accessToken, spreadsheetId, tabTitle) {
+  await axios.post(
+    `${config.googleSheets.sheetsApiBaseUrl}/${spreadsheetId}/values/${rangeUrl(tabTitle, "")}:clear`,
+    {},
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+}
+
+// Ghi các entry vào 1 file Page: tạo file nếu chưa có (hoặc file cũ đã mất), thêm tab thiếu,
+// tab mới -> ghi header + dòng đầu, tab cũ -> APPEND thêm 1 dòng; tab NKH -> ghi đè bản mới.
+// Trả { spreadsheetId, spreadsheetUrl, created }.
+async function appendPageExport(auth, { spreadsheetId, pageName, entries }) {
+  const accessToken = await getAccessToken(auth);
+  const title = `${pageName || "Page"} — Báo cáo QC`;
+  const list = Array.isArray(entries) ? entries : [];
+
+  try {
+    let meta = null;
+    if (spreadsheetId) {
+      try {
+        meta = await apiGetSpreadsheet(accessToken, spreadsheetId);
+      } catch {
+        meta = null; // file bị xoá / mất quyền -> tạo mới
+      }
+    }
+
+    if (!meta) {
+      const tabTitles = [];
+      for (const entry of list) {
+        tabTitles.push(entry.campaignTab);
+        if (entry.demoTab) tabTitles.push(entry.demoTab);
+      }
+      const created = await apiCreateSpreadsheet(accessToken, title, tabTitles);
+      for (const entry of list) {
+        await apiUpdate(accessToken, created.spreadsheetId, entry.campaignTab, [entry.header, entry.summaryRow]);
+        if (entry.demoTab) {
+          await apiUpdate(accessToken, created.spreadsheetId, entry.demoTab, entry.demoValues);
+        }
+      }
+      return { spreadsheetId: created.spreadsheetId, spreadsheetUrl: created.spreadsheetUrl, created: true };
+    }
+
+    const missing = [];
+    for (const entry of list) {
+      if (!meta.titles.has(entry.campaignTab)) missing.push(entry.campaignTab);
+      if (entry.demoTab && !meta.titles.has(entry.demoTab)) missing.push(entry.demoTab);
+    }
+    await apiAddSheets(accessToken, meta.spreadsheetId, missing);
+    const missingSet = new Set(missing);
+
+    for (const entry of list) {
+      if (missingSet.has(entry.campaignTab)) {
+        await apiUpdate(accessToken, meta.spreadsheetId, entry.campaignTab, [entry.header, entry.summaryRow]);
+      } else {
+        await apiAppend(accessToken, meta.spreadsheetId, entry.campaignTab, [entry.summaryRow]);
+      }
+      if (entry.demoTab) {
+        await apiClear(accessToken, meta.spreadsheetId, entry.demoTab);
+        await apiUpdate(accessToken, meta.spreadsheetId, entry.demoTab, entry.demoValues);
+      }
+    }
+    return { spreadsheetId: meta.spreadsheetId, spreadsheetUrl: meta.spreadsheetUrl, created: false };
+  } catch (error) {
+    handleSheetsError("append_page_export", error, "Không ghi được dữ liệu vào Google Sheet.");
+  }
+}
+
 module.exports = {
   buildAuthorizationUrl,
   disconnect,
@@ -429,5 +660,7 @@ module.exports = {
   isConfigured,
   isConnected,
   storeTokens,
-  createPageSpreadsheet
+  createPageSpreadsheet,
+  buildExportEntry,
+  appendPageExport
 };

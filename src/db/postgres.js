@@ -356,6 +356,32 @@ async function initAdsInsightsSchema() {
   console.log("[Postgres] Bảng ads_insights_* sẵn sàng.");
 }
 
+// Nhớ file Google Sheet đã tạo cho mỗi (tài khoản FB × Page) để lần xuất sau GHI TIẾP
+// vào file cũ (dồn dữ liệu) thay vì tạo file mới. Khoá tự nhiên = fb_user_id + page_id
+// (fb_user_id luôn có khi đăng nhập Facebook; user_id SaaS có thể NULL).
+async function initAdsExportSheetsSchema() {
+  const db = getSql();
+  if (!db) {
+    return;
+  }
+
+  await db`
+    CREATE TABLE IF NOT EXISTS ads_export_sheets (
+      id              BIGSERIAL PRIMARY KEY,
+      user_id         BIGINT,                 -- tenant SaaS (nullable)
+      fb_user_id      TEXT NOT NULL,          -- tài khoản Facebook sở hữu file
+      page_id         TEXT NOT NULL,
+      spreadsheet_id  TEXT NOT NULL,
+      spreadsheet_url TEXT,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (fb_user_id, page_id)
+    )
+  `;
+
+  console.log("[Postgres] Bảng ads_export_sheets sẵn sàng.");
+}
+
 // Gán chủ sở hữu cho các snapshot CŨ chưa có user_id, suy từ crawl_jobs đã liên
 // kết (crawl_jobs.snapshot_id -> snapshots.id). Chạy MỘT LẦN lúc khởi động, SAU
 // khi cả bảng snapshots (đã thêm cột user_id) lẫn crawl_jobs đều sẵn sàng.
@@ -392,5 +418,6 @@ module.exports = {
   initCrawlJobsSchema,
   initWorkerSchema,
   initAdsInsightsSchema,
+  initAdsExportSheetsSchema,
   backfillSnapshotOwners
 };

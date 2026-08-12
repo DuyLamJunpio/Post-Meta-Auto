@@ -922,6 +922,15 @@ function normalizeAdAccountId(adAccountId) {
   return raw.startsWith("act_") ? raw : `act_${raw}`;
 }
 
+// Tham số khoảng thời gian cho Ads Insights: ưu tiên time_range tùy chọn {since,until}
+// (YYYY-MM-DD); nếu không có thì dùng date_preset. Meta chấp nhận 1 trong 2, KHÔNG cả hai.
+function dateRangeParams(datePreset, timeRange) {
+  if (timeRange && timeRange.since && timeRange.until) {
+    return { time_range: JSON.stringify({ since: timeRange.since, until: timeRange.until }) };
+  }
+  return { date_preset: datePreset };
+}
+
 // Liệt kê tài khoản quảng cáo mà user truy cập được (/me/adaccounts). Cần scope ads_read.
 async function getAdAccounts(userAccessToken) {
   try {
@@ -1072,7 +1081,7 @@ async function getAdAccountCurrency(adAccountId, userAccessToken) {
 //
 // KHÔNG tự tính toán ở đây: chỉ trả mảng data thô từ Graph (mỗi phần tử = 1 ngày);
 // việc dựng overview/daily do src/utils/ads-math.js đảm nhiệm.
-async function getCampaignInsights({ campaignId, userAccessToken, datePreset = "last_30d" }) {
+async function getCampaignInsights({ campaignId, userAccessToken, datePreset = "last_30d", timeRange = null }) {
   if (!campaignId) {
     throw createPublicError(400, "Thiếu mã chiến dịch (campaign id).");
   }
@@ -1100,7 +1109,7 @@ async function getCampaignInsights({ campaignId, userAccessToken, datePreset = "
     return fetchAllPaged(`${config.facebook.graphApiBaseUrl}/${campaignId}/insights`, {
       fields: fields.join(","),
       time_increment: 1,
-      date_preset: datePreset,
+      ...dateRangeParams(datePreset, timeRange),
       access_token: userAccessToken,
       limit: 500
     });
@@ -1159,7 +1168,7 @@ async function getCampaignInsights({ campaignId, userAccessToken, datePreset = "
 // BEST-EFFORT theo TỪNG chiều: một chiều lỗi (thiếu quyền, code 100 không hỗ trợ region,
 // mạng...) -> chiều đó trả { available:false, reason } tiếng Việt, KHÔNG ném và KHÔNG
 // làm hỏng các chiều còn lại. Nhân khẩu học là phần phụ, không được đánh sập cả báo cáo.
-async function getCampaignBreakdowns({ campaignId, userAccessToken, datePreset = "last_30d" }) {
+async function getCampaignBreakdowns({ campaignId, userAccessToken, datePreset = "last_30d", timeRange = null }) {
   if (!campaignId) {
     throw createPublicError(400, "Thiếu mã chiến dịch (campaign id).");
   }
@@ -1170,7 +1179,7 @@ async function getCampaignBreakdowns({ campaignId, userAccessToken, datePreset =
     return fetchAllPaged(`${config.facebook.graphApiBaseUrl}/${campaignId}/insights`, {
       fields: metricFields.join(","),
       breakdowns,
-      date_preset: datePreset,
+      ...dateRangeParams(datePreset, timeRange),
       access_token: userAccessToken,
       limit: 500
     });

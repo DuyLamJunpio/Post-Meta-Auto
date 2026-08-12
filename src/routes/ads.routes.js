@@ -8,6 +8,7 @@ const facebookService = require("../services/facebook.service");
 const adsInsightsService = require("../services/ads-insights.service");
 const adsPagesService = require("../services/ads-pages.service");
 const googleSheetsService = require("../services/google-sheets.service");
+const adsSheetStore = require("../services/ads-sheet-store.service");
 const pageVisibilityService = require("../services/page-visibility.service");
 
 const router = express.Router();
@@ -39,8 +40,54 @@ const VALID_DATE_PRESETS = new Set([
   "last_90d",
   "this_month",
   "last_month",
+  "this_year",
+  "last_year",
   "maximum"
 ]);
+
+const PRESET_LABELS = {
+  today: "Hôm nay",
+  yesterday: "Hôm qua",
+  last_7d: "7 ngày qua",
+  last_14d: "14 ngày qua",
+  last_28d: "28 ngày qua",
+  last_30d: "30 ngày qua",
+  last_90d: "90 ngày qua",
+  this_month: "Tháng này",
+  last_month: "Tháng trước",
+  this_year: "Năm nay",
+  last_year: "Năm trước",
+  maximum: "Tối đa"
+};
+
+// Khoảng thời gian cho 1 lần xuất: ưu tiên khoảng ngày tùy chọn {since,until} (YYYY-MM-DD),
+// nếu không thì date_preset. Trả { key (dùng cho idempotency), timeRange, label, dateStart, dateStop }.
+function resolvePeriod(body) {
+  const since = String(body.since || "").trim();
+  const until = String(body.until || "").trim();
+  const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s);
+  if (isDate(since) && isDate(until)) {
+    const lo = since <= until ? since : until;
+    const hi = since <= until ? until : since;
+    return { key: `custom_${lo}_${hi}`, timeRange: { since: lo, until: hi }, label: `Khoảng ${lo} → ${hi}`, dateStart: lo, dateStop: hi };
+  }
+  const requested = String(body.datePreset || "last_30d").trim();
+  const preset = VALID_DATE_PRESETS.has(requested) ? requested : "last_30d";
+  return { key: preset, timeRange: null, label: PRESET_LABELS[preset] || preset, dateStart: null, dateStop: null };
+}
+
+// "YYYY-MM-DD HH:mm" theo giờ Việt Nam cho cột "Ngày xuất".
+function formatCapturedAt() {
+  return new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(new Date());
+}
 
 // GET /api/ads/pages-tree — cây "trục Page": mỗi Page user quản lý -> các chiến dịch
 // (kèm trạng thái) quảng bá Page đó, quét MỌI tài khoản QC. Kết quả/nhân khẩu học của
@@ -173,9 +220,15 @@ router.post("/ads/pages/:pageId/export-sheet", async (req, res, next) => {
       });
     }
 
+    const fbUserId = (req.session.facebookUser && req.session.facebookUser.id) || null;
+    if (!fbUserId) {
+      throw createPublicError(400, "Không xác định được tài khoản Facebook đang đăng nhập.");
+    }
+
+    const pageId = String(req.params.pageId || "").trim() || "khac";
     const pageName = String(req.body.pageName || "Page").slice(0, 120);
-    const requestedPreset = String(req.body.datePreset || "last_30d").trim();
-    const datePreset = VALID_DATE_PRESETS.has(requestedPreset) ? requestedPreset : "last_30d";
+    const period = resolvePeriod(req.body);
+    const capturedAt = formatCapturedAt();
 
     // Giới hạn 50 chiến dịch/lần xuất để không nã Graph quá nhiều.
     const requestedCampaigns = Array.isArray(req.body.campaigns) ? req.body.campaigns.slice(0, 50) : [];
@@ -183,8 +236,8 @@ router.post("/ads/pages/:pageId/export-sheet", async (req, res, next) => {
       throw createPublicError(400, "Không có chiến dịch nào để xuất.");
     }
 
-    // Lấy insights TUẦN TỰ từng chiến dịch (tránh nã Graph đồng thời quá nhanh).
-    const campaigns = [];
+    // Lấy insights (+ nhân khẩu học) TUẦN TỰ từng chiến dịch, dựng entry để ghi vào Sheet.
+    const entries = [];
     for (const item of requestedCampaigns) {
       const adAccountId = String(item.adAccountId || "").trim();
       const campaignId = String(item.id || "").trim();
@@ -196,11 +249,11 @@ router.post("/ads/pages/:pageId/export-sheet", async (req, res, next) => {
         adAccountId,
         userAccessToken,
         userId: Number(req.session.userId) || null,
-        datePreset
+        datePreset: period.key,
+        timeRange: period.timeRange
       });
 
-      // Nhân khẩu học: chỉ lấy khi insights khả dụng (cùng điều kiện quyền), best-effort —
-      // lỗi ở đây KHÔNG chặn xuất phần kết quả.
+      // Nhân khẩu học: chỉ khi insights khả dụng, best-effort (lỗi không chặn xuất kết quả).
       let demographics = null;
       if (insights.available) {
         try {
@@ -209,26 +262,52 @@ router.post("/ads/pages/:pageId/export-sheet", async (req, res, next) => {
             adAccountId,
             userAccessToken,
             userId: Number(req.session.userId) || null,
-            datePreset
+            datePreset: period.key,
+            timeRange: period.timeRange
           });
         } catch (demoError) {
           console.warn("[Ads Export Sheet] Không lấy được nhân khẩu học:", demoError.message);
         }
       }
 
-      campaigns.push({
-        name: item.name || campaignId,
-        campaignId,
-        available: insights.available,
-        reason: (insights.warnings || [])[0] || "",
-        overview: insights.overview,
-        daily: insights.daily,
-        currency: insights.currency,
-        demographics
-      });
+      entries.push(
+        googleSheetsService.buildExportEntry(
+          {
+            name: item.name || campaignId,
+            campaignId,
+            available: insights.available,
+            overview: insights.overview,
+            daily: insights.daily,
+            demographics
+          },
+          {
+            periodLabel: period.label,
+            dateStart: period.dateStart,
+            dateStop: period.dateStop,
+            capturedAt
+          }
+        )
+      );
     }
 
-    const spreadsheet = await googleSheetsService.createPageSpreadsheet(sheetsAuth, { pageName, campaigns });
+    if (entries.length === 0) {
+      throw createPublicError(400, "Không có chiến dịch hợp lệ để xuất.");
+    }
+
+    // Dồn vào file cũ nếu đã có (theo tài khoản FB × Page); nếu chưa thì tạo mới rồi nhớ lại.
+    const existing = await adsSheetStore.getSheetMapping(fbUserId, pageId);
+    const spreadsheet = await googleSheetsService.appendPageExport(sheetsAuth, {
+      spreadsheetId: existing ? existing.spreadsheetId : null,
+      pageName,
+      entries
+    });
+
+    await adsSheetStore.saveSheetMapping(fbUserId, pageId, {
+      userId: Number(req.session.userId) || null,
+      spreadsheetId: spreadsheet.spreadsheetId,
+      spreadsheetUrl: spreadsheet.spreadsheetUrl
+    });
+
     res.json({ success: true, spreadsheet });
   } catch (error) {
     next(error);

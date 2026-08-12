@@ -85,6 +85,8 @@ const DATE_PRESETS = [
   { value: "last_90d", label: "90 ngày qua" },
   { value: "this_month", label: "Tháng này" },
   { value: "last_month", label: "Tháng trước" },
+  { value: "this_year", label: "Năm nay" },
+  { value: "last_year", label: "Năm trước" },
   { value: "maximum", label: "Tối đa" }
 ];
 const DEFAULT_PRESET = "last_30d";
@@ -231,6 +233,16 @@ export function mountAdsSection(rootEl) {
     STATUS_FILTERS.map((o) => el("option", { text: o.label, attrs: { value: o.value } }))
   );
 
+  // Khoảng ngày tùy chọn — dùng khi Xuất Google Sheet (điền cả 2 ô sẽ ghi đè "Khoảng thời gian").
+  const dateFromInput = el("input", {
+    class: selectClass(),
+    attrs: { type: "date", id: "ads-date-from", "aria-label": "Từ ngày (xuất Sheet)" }
+  });
+  const dateToInput = el("input", {
+    class: selectClass(),
+    attrs: { type: "date", id: "ads-date-to", "aria-label": "Đến ngày (xuất Sheet)" }
+  });
+
   const refreshBtn = el("button", {
     class: "rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-600 disabled:opacity-50",
     text: "Làm mới",
@@ -244,9 +256,15 @@ export function mountAdsSection(rootEl) {
     ),
     el("div", { class: "flex flex-wrap items-end gap-3" }, [
       labeledField("Khoảng thời gian", datePresetSelect),
+      labeledField("Từ ngày (Sheet)", dateFromInput),
+      labeledField("Đến ngày (Sheet)", dateToInput),
       labeledField("Lọc trạng thái", statusFilter),
       refreshBtn
-    ])
+    ]),
+    el("p", {
+      class: "mt-2 text-xs text-slate-400",
+      text: "Mỗi lần bấm 📊 Google Sheet sẽ THÊM 1 dòng vào file của Page (dồn dữ liệu). Điền cả “Từ ngày”+“Đến ngày” để xuất theo khoảng tùy chọn; bỏ trống thì dùng “Khoảng thời gian”."
+    })
   ]);
 
   const statusEl = el("p", { class: "text-sm text-slate-500", attrs: { "aria-live": "polite" } });
@@ -410,19 +428,23 @@ export function mountAdsSection(rootEl) {
     }
 
     btn.disabled = true;
-    statusEl.replaceChildren(el("span", { class: "text-xs text-slate-500", text: "Đang tạo Google Sheet…" }));
+    statusEl.replaceChildren(el("span", { class: "text-xs text-slate-500", text: "Đang ghi vào Google Sheet…" }));
+
+    // Khoảng ngày tùy chọn (điền cả 2) sẽ ghi đè preset; nếu không dùng "Khoảng thời gian".
+    const payload = { pageName: group.pageName, campaigns };
+    const since = dateFromInput.value;
+    const until = dateToInput.value;
+    if (since && until) {
+      payload.since = since;
+      payload.until = until;
+    } else {
+      payload.datePreset = datePresetSelect.value || DEFAULT_PRESET;
+    }
 
     try {
       const data = await fetchJson(
         `/api/ads/pages/${encodeURIComponent(group.pageId || "khac")}/export-sheet`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            pageName: group.pageName,
-            datePreset: datePresetSelect.value || DEFAULT_PRESET,
-            campaigns
-          })
-        }
+        { method: "POST", body: JSON.stringify(payload) }
       );
       const url = data.spreadsheet && data.spreadsheet.spreadsheetUrl;
       statusEl.replaceChildren(
