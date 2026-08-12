@@ -263,7 +263,7 @@ export function mountAdsSection(rootEl) {
     ]),
     el("p", {
       class: "mt-2 text-xs text-slate-400",
-      text: "Mỗi lần bấm 📊 Google Sheet sẽ THÊM 1 dòng vào file của Page (dồn dữ liệu). Điền cả “Từ ngày”+“Đến ngày” để xuất theo khoảng tùy chọn; bỏ trống thì dùng “Khoảng thời gian”."
+      text: "Mỗi lần bấm 📊 Google Sheet sẽ ĐIỀN/CẬP NHẬT dữ liệu THEO NGÀY vào file của Page (mỗi ngày 1 dòng, không trùng). Chọn “Khoảng thời gian”, hoặc điền cả “Từ ngày”+“Đến ngày”, để lấp đúng các ngày cần."
     })
   ]);
 

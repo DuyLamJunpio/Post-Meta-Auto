@@ -144,7 +144,9 @@ function buildDailySeries(rows) {
       spend: toNumber(row && row.spend),
       impressions: toNumber(row && row.impressions),
       reach: toNumber(row && row.reach),
-      clicks: toNumber(row && row.clicks)
+      clicks: toNumber(row && row.clicks),
+      // "Kết quả" theo từng ngày (suy từ results/actions như overview) — phục vụ chuỗi ngày ra Sheet.
+      results: pickResults(row).results
     }))
     .filter((point) => point.date)
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
