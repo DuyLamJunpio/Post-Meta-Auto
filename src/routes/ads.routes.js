@@ -198,6 +198,24 @@ router.post("/ads/pages/:pageId/export-sheet", async (req, res, next) => {
         userId: Number(req.session.userId) || null,
         datePreset
       });
+
+      // Nhân khẩu học: chỉ lấy khi insights khả dụng (cùng điều kiện quyền), best-effort —
+      // lỗi ở đây KHÔNG chặn xuất phần kết quả.
+      let demographics = null;
+      if (insights.available) {
+        try {
+          demographics = await adsInsightsService.buildCampaignDemographics({
+            campaignId,
+            adAccountId,
+            userAccessToken,
+            userId: Number(req.session.userId) || null,
+            datePreset
+          });
+        } catch (demoError) {
+          console.warn("[Ads Export Sheet] Không lấy được nhân khẩu học:", demoError.message);
+        }
+      }
+
       campaigns.push({
         name: item.name || campaignId,
         campaignId,
@@ -205,7 +223,8 @@ router.post("/ads/pages/:pageId/export-sheet", async (req, res, next) => {
         reason: (insights.warnings || [])[0] || "",
         overview: insights.overview,
         daily: insights.daily,
-        currency: insights.currency
+        currency: insights.currency,
+        demographics
       });
     }
 

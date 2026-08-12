@@ -233,6 +233,49 @@ function cellNumber(value) {
   return Number.isInteger(n) ? n : Math.round(n * 10000) / 10000;
 }
 
+// Nhãn giới tính + tên quốc gia tiếng Việt (khớp cách hiển thị trên web).
+const GENDER_LABELS = { female: "Nữ", male: "Nam", unknown: "Không rõ" };
+
+let regionDisplay = null;
+try {
+  regionDisplay = new Intl.DisplayNames(["vi"], { type: "region" });
+} catch {
+  regionDisplay = null;
+}
+function countryLabel(code) {
+  if (!code || code === "unknown") return "Không rõ";
+  if (regionDisplay) {
+    try {
+      const name = regionDisplay.of(code);
+      if (name && name !== code) return `${name} (${code})`;
+    } catch {
+      /* mã lạ -> giữ nguyên code */
+    }
+  }
+  return code;
+}
+
+// Ghi 1 chiều nhân khẩu học (country/region) vào rows: tiêu đề + cột + dữ liệu, hoặc "Không khả dụng".
+function pushCategoricalDim(rows, dim, title, header, labeler) {
+  rows.push([]);
+  rows.push([title]);
+  if (dim && dim.available) {
+    rows.push([header, "Hiển thị", "Tiếp cận", "Lượt nhấp", "Chi tiêu", "Tỷ trọng (%)"]);
+    for (const item of dim.items || []) {
+      rows.push([
+        labeler(item.value),
+        cellNumber(item.impressions),
+        cellNumber(item.reach),
+        cellNumber(item.clicks),
+        cellNumber(item.spend),
+        cellNumber(item.share)
+      ]);
+    }
+  } else {
+    rows.push(["Không khả dụng", (dim && dim.reason) || ""]);
+  }
+}
+
 // Tên tab hợp lệ: bỏ ký tự Sheets cấm ( : \ / ? * [ ] ' ), gọn khoảng trắng, tối đa 95 ký tự.
 function sanitizeSheetTitle(name) {
   let title = String(name || "")
@@ -290,6 +333,38 @@ function buildCampaignSheetValues(campaign) {
       cellNumber(point.clicks)
     ]);
   }
+
+  // --- Nhân khẩu học người xem quảng cáo (tuổi×giới / quốc gia / vùng) ---
+  const demo = campaign.demographics;
+  if (demo) {
+    rows.push([]);
+    rows.push(["[Nhân khẩu học người xem quảng cáo]"]);
+
+    rows.push([]);
+    rows.push(["[Tuổi × giới tính]"]);
+    if (demo.ageGender && demo.ageGender.available) {
+      rows.push(["Nhóm tuổi", "Giới tính", "Hiển thị", "Tiếp cận", "Lượt nhấp", "Chi tiêu", "Tỷ trọng (%)"]);
+      for (const seg of demo.ageGender.segments || []) {
+        rows.push([
+          seg.age,
+          GENDER_LABELS[seg.gender] || seg.gender,
+          cellNumber(seg.impressions),
+          cellNumber(seg.reach),
+          cellNumber(seg.clicks),
+          cellNumber(seg.spend),
+          cellNumber(seg.share)
+        ]);
+      }
+    } else {
+      rows.push(["Không khả dụng", (demo.ageGender && demo.ageGender.reason) || ""]);
+    }
+
+    pushCategoricalDim(rows, demo.country, "[Top quốc gia]", "Quốc gia", countryLabel);
+    pushCategoricalDim(rows, demo.region, "[Top vùng/tỉnh]", "Vùng/tỉnh", (value) =>
+      !value || value === "unknown" ? "Không rõ" : value
+    );
+  }
+
   return rows;
 }
 
